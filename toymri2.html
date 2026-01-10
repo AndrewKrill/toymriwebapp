@@ -27,6 +27,7 @@
       box-shadow: 0 8px 30px rgba(0,0,0,.25);
     }
     .panel h3{margin:0 0 8px 0; font-size:13px; color:var(--muted); font-weight:700; letter-spacing:.02em;}
+    .panel h4{margin:0 0 6px 0; font-size:12px; color:var(--muted); font-weight:600; letter-spacing:.02em;}
     .row{display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
     label{font-size:12px; color:var(--muted);}
     input[type="range"]{width:100%;}
@@ -75,6 +76,7 @@
       grid-template-columns: 1fr 1fr 1fr;
       gap:10px;
     }
+    .panelSection{display:flex; flex-direction:column; gap:6px;}
     .consoleWrap{
       display:flex; flex-direction:column; gap:8px;
     }
@@ -252,14 +254,49 @@ canvas{
       </div>
 
       <div class="panel">
-        <h3>K-space Location</h3>
-        <canvas id="kpos" width="256" height="256"></canvas>
-        <div class="row" style="margin-top:8px;">
-          <span class="pill">k = (<span id="kxTxt">0.00</span>, <span id="kyTxt">0.00</span>)</span>
-          <button class="btn secondary" id="btnZeroK">Zero k</button>
-        </div>
-        <div class="hint" style="margin-top:8px;">
-          k updates each simulation step: kx += Gx·Δt, ky += Gy·Δt (toy scaling).
+        <h3>K-space & Reconstruction</h3>
+        <div class="three">
+          <div class="panelSection">
+            <h4>K-space Location</h4>
+            <canvas id="kpos" width="256" height="256"></canvas>
+            <div class="row" style="margin-top:8px;">
+              <span class="pill">k = (<span id="kxTxt">0.00</span>, <span id="kyTxt">0.00</span>)</span>
+              <button class="btn secondary" id="btnZeroK">Zero k</button>
+            </div>
+            <div class="hint" style="margin-top:8px;">
+              k updates each simulation step: kx += Gx·Δt, ky += Gy·Δt (toy scaling).
+            </div>
+          </div>
+          <div class="panelSection">
+            <h4>Acquired K-space (grid)</h4>
+            <canvas id="kspace" width="512" height="512"></canvas>
+            <div class="row" style="margin-top:8px;">
+              <button class="btn secondary" id="btnClearK">Clear K-space</button>
+              <button class="btn" id="btnRecon">Reconstruct</button>
+              <select id="kDisp">
+                <option value="mag">Magnitude</option>
+                <option value="phase">Phase</option>
+                <option value="re">Real</option>
+                <option value="im">Imag</option>
+              </select>
+            </div>
+            <div class="hint" style="margin-top:8px;">
+              Each ADC sample is dropped into the nearest k-space bin (nearest-neighbor gridding).
+            </div>
+          </div>
+          <div class="panelSection">
+            <h4>Reconstruction (IFFT2)</h4>
+            <canvas id="recon" width="512" height="512"></canvas>
+            <div class="row" style="margin-top:8px;">
+              <select id="reconDisp">
+                <option value="mag">Magnitude</option>
+                <option value="phase">Phase</option>
+                <option value="re">Real</option>
+                <option value="im">Imag</option>
+              </select>
+              <span class="pill">Note: simplistic, no density compensation</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -294,39 +331,6 @@ canvas{
       </div>
     </div>
 
-    <div class="two">
-      <div class="panel">
-        <h3>Acquired K-space (grid)</h3>
-        <canvas id="kspace" width="512" height="512"></canvas>
-        <div class="row" style="margin-top:8px;">
-          <button class="btn secondary" id="btnClearK">Clear K-space</button>
-          <button class="btn" id="btnRecon">Reconstruct</button>
-          <select id="kDisp">
-            <option value="mag">Magnitude</option>
-            <option value="phase">Phase</option>
-            <option value="re">Real</option>
-            <option value="im">Imag</option>
-          </select>
-        </div>
-        <div class="hint" style="margin-top:8px;">
-          Each ADC sample is dropped into the nearest k-space bin (nearest-neighbor gridding).
-        </div>
-      </div>
-
-      <div class="panel">
-        <h3>Reconstruction (IFFT2)</h3>
-        <canvas id="recon" width="512" height="512"></canvas>
-        <div class="row" style="margin-top:8px;">
-          <select id="reconDisp">
-            <option value="mag">Magnitude</option>
-            <option value="phase">Phase</option>
-            <option value="re">Real</option>
-            <option value="im">Imag</option>
-          </select>
-          <span class="pill">Note: simplistic, no density compensation</span>
-        </div>
-      </div>
-    </div>
   </div>
 </main>
 
