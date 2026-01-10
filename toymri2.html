@@ -1,0 +1,1511 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MRI Toy Simulator (Bloch + K-space)</title>
+  <style>
+    :root{
+      --bg:#0b0f14; --panel:#121a24; --panel2:#0f1620; --fg:#e7eef7; --muted:#9fb0c3;
+      --acc:#4aa3ff; --acc2:#7cffc8; --warn:#ffcc66; --bad:#ff6b6b;
+      --grid:#1e2a38; --line:#2a3a4f;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+    }
+    *{box-sizing:border-box}
+    body{margin:0; background:var(--bg); color:var(--fg); font-family:var(--sans);}
+    header{
+      padding:10px 14px; border-bottom:1px solid var(--line);
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+    }
+    header .title{font-weight:700}
+    header .sub{color:var(--muted); font-size:12px}
+    main{display:grid; grid-template-columns: 340px 1fr; gap:10px; padding:10px;}
+    .leftcol{display:flex; flex-direction:column; gap:10px;}
+    .panel{
+      background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:10px;
+      box-shadow: 0 8px 30px rgba(0,0,0,.25);
+    }
+    .panel h3{margin:0 0 8px 0; font-size:13px; color:var(--muted); font-weight:700; letter-spacing:.02em;}
+    .row{display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
+    label{font-size:12px; color:var(--muted);}
+    input[type="range"]{width:100%;}
+    .small{font-size:12px; color:var(--muted);}
+    .btn{
+      background:linear-gradient(180deg, #1b2a3b, #162333);
+      border:1px solid #2b415d; color:var(--fg);
+      padding:8px 10px; border-radius:10px; cursor:pointer; font-weight:600;
+    }
+    .btn:active{transform:translateY(1px)}
+    .btn.secondary{background:linear-gradient(180deg, #141c28, #101826); border-color:#27374f;}
+    .btn.bad{background:linear-gradient(180deg, #3b1b1b, #2b1414); border-color:#5d2b2b;}
+    .btn.good{background:linear-gradient(180deg, #163325, #122b20); border-color:#2b5d47;}
+    .pill{
+      display:inline-flex; align-items:center; gap:6px;
+      border:1px solid var(--line); border-radius:999px; padding:5px 10px; background:var(--panel2);
+      font-size:12px; color:var(--muted);
+    }
+    select, input[type="number"], input[type="text"]{
+      background:var(--panel2); border:1px solid var(--line); color:var(--fg);
+      border-radius:10px; padding:7px 10px; outline:none;
+    }
+    select{padding:7px 10px;}
+    .grid2{
+      display:grid; grid-template-columns: 1fr 1fr; gap:10px;
+    }
+    .grid3{
+      display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px;
+    }
+    canvas{
+      image-rendering: pixelated;
+      background:#071019;
+      border:1px solid var(--line);
+      border-radius:10px;
+      width:100%;
+      height:auto;
+    }
+    .rightcol{display:flex; flex-direction:column; gap:10px;}
+    .two{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+    }
+    .three{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap:10px;
+    }
+    .consoleWrap{
+      display:flex; flex-direction:column; gap:8px;
+    }
+    .consoleOut{
+      height:160px; overflow:auto; background:var(--panel2);
+      border:1px solid var(--line); border-radius:10px; padding:8px;
+      font-family:var(--mono); font-size:12px; color:var(--fg);
+      white-space:pre-wrap;
+    }
+    .consoleInRow{display:flex; gap:8px;}
+    .consoleIn{flex:1; font-family:var(--mono);}
+    .hint{color:var(--muted); font-size:11px; line-height:1.2}
+    .kv{display:grid; grid-template-columns: 1fr auto; gap:6px; align-items:center; font-size:12px;}
+    .kv b{color:var(--fg)}
+    .sep{height:1px; background:var(--line); margin:8px 0;}
+	/* --- Compact layout tweaks --- */
+main{
+  grid-template-columns: 320px 1fr;   /* slightly narrower left column */
+  gap: 8px;
+  padding: 8px;
+}
+
+.panel{ padding: 8px; }
+.panel h3{ margin-bottom: 6px; }
+
+.two{ grid-template-columns: 1fr 1fr; gap: 8px; }
+.leftcol{ gap: 8px; }
+.rightcol{ gap: 8px; }
+
+/* Make canvases visually smaller without changing their internal pixel buffer */
+canvas{
+  max-width: 100%;
+}
+
+/* Target specific canvases with a compact height */
+#spin{ height: 640px; width:640px; }     /* was visually huge */
+#kspace{ height: 320px; width:320px; }
+#recon{ height: 320px; width:320px; }
+#adc{ height: 180px;}
+#kpos{ height: 320px; width:320px; }
+
+/* Phantom is already 64x64, but we can cap its display size */
+#phantom{ height: 220px; width: 220px; }
+  </style>
+</head>
+<body>
+<header>
+  <div>
+    <div class="title">MRI Toy Simulator</div>
+    <div class="sub">64×64 phantom • Bloch (toy units) • gradients → k-space • basic PSD scripting</div>
+  </div>
+  <div class="row">
+    <span class="pill" id="statusPill">Paused</span>
+    <button class="btn" id="btnRun">Run</button>
+    <button class="btn secondary" id="btnStep">Step</button>
+    <button class="btn secondary" id="btnResetM">Reset M</button>
+    <button class="btn bad" id="btnClearADC">Clear ADC</button>
+  </div>
+</header>
+
+<main>
+  <div class="leftcol">
+    <div class="panel">
+      <h3>Phantom Editor (Proton Density)</h3>
+      <canvas id="phantom" width="64" height="64" title="Left click draw, right click erase."></canvas>
+      <div class="row" style="margin-top:8px;">
+        <label>Tool</label>
+        <select id="tool">
+          <option value="draw">Draw</option>
+          <option value="select">Select</option>
+        </select>
+        <span class="pill" id="selInfo">Selection: none</span>
+      </div>
+      <div class="kv" style="margin-top:6px;">
+        <label>Property (PD)</label><b id="pdVal">0.80</b>
+        <input id="pdSlider" type="range" min="0" max="1" step="0.01" value="0.8" style="grid-column:1 / -1;">
+      </div>
+      <div class="kv">
+        <label>Pencil Size</label><b id="penVal">2</b>
+        <input id="penSlider" type="range" min="1" max="8" step="1" value="2" style="grid-column:1 / -1;">
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <button class="btn secondary" id="btnFill">Fill PD</button>
+        <button class="btn secondary" id="btnClearPhantom">Clear PD</button>
+      </div>
+      <div class="hint" style="margin-top:8px;">
+        Selection tool: drag to select a rectangle, then move the PD slider to adjust that region.
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Physics Controls</h3>
+
+      <div class="grid2">
+        <div class="kv">
+          <label>B0 (toy)</label><b id="b0Val">1.00</b>
+          <input id="b0Slider" type="range" min="0" max="5" step="0.01" value="1.0" style="grid-column:1 / -1;">
+        </div>
+        <div class="kv">
+          <label>Δt (time step)</label><b id="dtVal">0.50</b>
+          <input id="dtSlider" type="range" min="0.05" max="2.0" step="0.05" value="0.5" style="grid-column:1 / -1;">
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="kv">
+          <label>B1 mag (toy)</label><b id="b1mVal">0.00</b>
+          <input id="b1mSlider" type="range" min="0" max="2" step="0.01" value="0" style="grid-column:1 / -1;">
+        </div>
+        <div class="kv">
+          <label>B1 freq (toy)</label><b id="b1fVal">1.00</b>
+          <input id="b1fSlider" type="range" min="0" max="5" step="0.01" value="1.0" style="grid-column:1 / -1;">
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="kv">
+          <label>B1 phase (deg)</label><b id="b1pVal">0</b>
+          <input id="b1pSlider" type="range" min="-180" max="180" step="1" value="0" style="grid-column:1 / -1;">
+        </div>
+        <div class="kv">
+          <label>Relax (T1/T2)</label><b id="relaxVal">0.02</b>
+          <input id="relaxSlider" type="range" min="0" max="0.2" step="0.001" value="0.02" style="grid-column:1 / -1;">
+        </div>
+      </div>
+
+      <div class="sep"></div>
+
+      <div class="grid2">
+        <div class="kv">
+          <label>Gx (toy)</label><b id="gxVal">0.00</b>
+          <input id="gxSlider" type="range" min="-2" max="2" step="0.01" value="0" style="grid-column:1 / -1;">
+        </div>
+        <div class="kv">
+          <label>Gy (toy)</label><b id="gyVal">0.00</b>
+          <input id="gySlider" type="range" min="-2" max="2" step="0.01" value="0" style="grid-column:1 / -1;">
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:8px;">
+        <button class="btn good" id="btnADC">ADC Acquire (1 sample)</button>
+        <button class="btn secondary" id="btnADCn">ADC Acquire N</button>
+        <input type="number" id="adcN" min="1" max="4096" value="64" style="width:110px;">
+      </div>
+
+      <div class="hint" style="margin-top:8px;">
+        Toy Bloch units: precession uses ω = Bz + Gx·x + Gy·y, with B0 along +Z and B1 transverse.
+      </div>
+    </div>
+  </div>
+
+  <div class="rightcol">
+    <div class="two">
+      <div class="panel">
+        <h3>Spin View</h3>
+        <div class="row" style="margin-bottom:8px;">
+          <label>Frame</label>
+          <select id="frame">
+            <option value="lab">Stationary (Lab)</option>
+            <option value="b0">B0 rotating</option>
+            <option value="b1">B1 rotating</option>
+          </select>
+          <label>Display</label>
+          <select id="spinDisp">
+            <option value="vectors">Vectors</option>
+            <option value="phase">Phase (Mx+iMy)</option>
+            <option value="mz">Mz</option>
+            <option value="mxy">|Mxy|</option>
+          </select>
+        </div>
+        <canvas id="spin" width="512" height="512"></canvas>
+        <div class="hint" style="margin-top:8px;">
+          Vectors show transverse magnetization direction; phase view shows angle of Mx+iMy.
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>K-space Location</h3>
+        <canvas id="kpos" width="256" height="256"></canvas>
+        <div class="row" style="margin-top:8px;">
+          <span class="pill">k = (<span id="kxTxt">0.00</span>, <span id="kyTxt">0.00</span>)</span>
+          <button class="btn secondary" id="btnZeroK">Zero k</button>
+        </div>
+        <div class="hint" style="margin-top:8px;">
+          k updates each simulation step: kx += Gx·Δt, ky += Gy·Δt (toy scaling).
+        </div>
+      </div>
+    </div>
+
+    <div class="two">
+      <div class="panel">
+        <h3>ADC Signal (Σ PD·Mxy)</h3>
+        <canvas id="adc" width="640" height="240"></canvas>
+        <div class="row" style="margin-top:8px;">
+          <span class="pill">Samples: <span id="adcCount">0</span></span>
+          <button class="btn secondary" id="btnFFT">Show FFT (magnitude)</button>
+          <select id="adcView">
+            <option value="reim">Re/Im</option>
+            <option value="mag">Magnitude</option>
+          </select>
+        </div>
+        <div class="hint" style="margin-top:8px;">
+          One ADC sample is the complex sum of transverse magnetization.
+        </div>
+      </div>
+
+      <div class="panel consoleWrap">
+        <h3>Sequence Console (PSD scripting)</h3>
+        <div class="consoleOut" id="consoleOut"></div>
+        <div class="consoleInRow">
+          <input class="consoleIn" id="consoleIn" type="text" spellcheck="false" placeholder="Type command (try: help)"/>
+          <button class="btn" id="btnExec">Run</button>
+        </div>
+        <div class="hint">
+          History: ↑/↓ • Autocomplete: Tab • Commands: <span style="font-family:var(--mono); color:var(--muted)">help, reset, run, stop, step, dt, b0, b1, grad, rf, delay, adc, zerok, cleark, clearadc, recon</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="two">
+      <div class="panel">
+        <h3>Acquired K-space (grid)</h3>
+        <canvas id="kspace" width="512" height="512"></canvas>
+        <div class="row" style="margin-top:8px;">
+          <button class="btn secondary" id="btnClearK">Clear K-space</button>
+          <button class="btn" id="btnRecon">Reconstruct</button>
+          <select id="kDisp">
+            <option value="mag">Magnitude</option>
+            <option value="phase">Phase</option>
+            <option value="re">Real</option>
+            <option value="im">Imag</option>
+          </select>
+        </div>
+        <div class="hint" style="margin-top:8px;">
+          Each ADC sample is dropped into the nearest k-space bin (nearest-neighbor gridding).
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Reconstruction (IFFT2)</h3>
+        <canvas id="recon" width="512" height="512"></canvas>
+        <div class="row" style="margin-top:8px;">
+          <select id="reconDisp">
+            <option value="mag">Magnitude</option>
+            <option value="phase">Phase</option>
+            <option value="re">Real</option>
+            <option value="im">Imag</option>
+          </select>
+          <span class="pill">Note: simplistic, no density compensation</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+(() => {
+  // =========================
+  // Constants & state
+  // =========================
+  const N = 64;
+
+  // Toy gamma: set to 1 rad/(toy·time) so sliders feel usable.
+  const GAMMA = 1.0;
+
+  // Storage
+  const PD = new Float32Array(N*N);       // proton density [0..1]
+  const Mx = new Float32Array(N*N);
+  const My = new Float32Array(N*N);
+  const Mz = new Float32Array(N*N);
+
+  // K-space grid (complex)
+  const KRe = new Float32Array(N*N);
+  const KIm = new Float32Array(N*N);
+  const KHit = new Uint16Array(N*N); // hit count per bin (for averaging)
+
+  // Recon image (complex)
+  let IRe = new Float32Array(N*N);
+  let IIm = new Float32Array(N*N);
+
+  // ADC time series (complex)
+  let adcRe = [];
+  let adcIm = [];
+  let adcFFTMag = null; // optional display
+
+  // K-space position (toy)
+  let kx = 0, ky = 0;
+
+  // Controls (live)
+  const ctl = {
+    running:false,
+    dt:0.5,
+    b0:1.0,
+    b1m:0.0,
+    b1f:1.0,
+    b1pDeg:0,
+    gx:0.0,
+    gy:0.0,
+    relax:0.02, // toy relaxation rate
+    t:0.0,      // global time (toy)
+    frame:"lab",
+    spinDisp:"vectors",
+    tool:"draw",
+    pen:2,
+    pd:0.8,
+    kDisp:"mag",
+    reconDisp:"mag",
+    adcView:"reim",
+    showFFT:false
+  };
+
+  // Selection rectangle in phantom
+  let sel = null; // {x0,y0,x1,y1} inclusive bounds in pixel coords
+  let isDragging = false;
+  let dragStart = null;
+
+  // =========================
+  // DOM bindings
+  // =========================
+  const $ = (id)=>document.getElementById(id);
+
+  const canvPh = $("phantom");
+  const canvSpin = $("spin");
+  const canvKpos = $("kpos");
+  const canvADC = $("adc");
+  const canvK = $("kspace");
+  const canvRecon = $("recon");
+
+  const ctxPh = canvPh.getContext("2d");
+  const ctxSpin = canvSpin.getContext("2d");
+  const ctxKpos = canvKpos.getContext("2d");
+  const ctxADC = canvADC.getContext("2d");
+  const ctxK = canvK.getContext("2d");
+  const ctxRecon = canvRecon.getContext("2d");
+
+  // Prevent context menu for right click drawing
+  [canvPh, canvSpin, canvK, canvRecon, canvKpos, canvADC].forEach(c => {
+    c.addEventListener("contextmenu", e => e.preventDefault());
+  });
+
+  // UI elements
+  const statusPill = $("statusPill");
+
+  function bindSlider(sliderId, valId, key, fmt=(v)=>v.toFixed(2)) {
+    const el = $(sliderId), out = $(valId);
+    el.addEventListener("input", () => {
+      ctl[key] = parseFloat(el.value);
+      out.textContent = fmt(ctl[key]);
+    });
+    // init
+    ctl[key] = parseFloat(el.value);
+    out.textContent = fmt(ctl[key]);
+  }
+
+  bindSlider("pdSlider","pdVal","pd", v=>v.toFixed(2));
+  bindSlider("penSlider","penVal","pen", v=>String(v|0));
+
+  bindSlider("b0Slider","b0Val","b0", v=>v.toFixed(2));
+  bindSlider("dtSlider","dtVal","dt", v=>v.toFixed(2));
+  bindSlider("b1mSlider","b1mVal","b1m", v=>v.toFixed(2));
+  bindSlider("b1fSlider","b1fVal","b1f", v=>v.toFixed(2));
+  bindSlider("relaxSlider","relaxVal","relax", v=>v.toFixed(3));
+
+  const b1pSlider = $("b1pSlider");
+  const b1pVal = $("b1pVal");
+  b1pSlider.addEventListener("input", ()=> {
+    ctl.b1pDeg = parseInt(b1pSlider.value,10);
+    b1pVal.textContent = String(ctl.b1pDeg);
+  });
+  ctl.b1pDeg = parseInt(b1pSlider.value,10);
+  b1pVal.textContent = String(ctl.b1pDeg);
+
+  bindSlider("gxSlider","gxVal","gx", v=>v.toFixed(2));
+  bindSlider("gySlider","gyVal","gy", v=>v.toFixed(2));
+
+  $("tool").addEventListener("change", e => {
+    ctl.tool = e.target.value;
+    $("selInfo").textContent = sel ? `Selection: ${sel.x0},${sel.y0} → ${sel.x1},${sel.y1}` : "Selection: none";
+  });
+
+  $("frame").addEventListener("change", e => ctl.frame = e.target.value);
+  $("spinDisp").addEventListener("change", e => ctl.spinDisp = e.target.value);
+
+  $("kDisp").addEventListener("change", e => { ctl.kDisp = e.target.value; drawKspace(); });
+  $("reconDisp").addEventListener("change", e => { ctl.reconDisp = e.target.value; drawRecon(); });
+  $("adcView").addEventListener("change", e => { ctl.adcView = e.target.value; drawADC(); });
+
+  // Buttons
+  $("btnRun").onclick = () => { ctl.running = !ctl.running; updateStatus(); };
+  $("btnStep").onclick = () => { stepSim(); renderAll(); };
+  $("btnResetM").onclick = () => { resetMagnetization(); renderAll(); log("> reset magnetization"); };
+  $("btnClearADC").onclick = () => { clearADC(); renderAll(); log("> clear adc"); };
+  $("btnADC").onclick = () => { acquireOne(); renderAll(); };
+  $("btnADCn").onclick = () => {
+    const n = clampInt(parseInt($("adcN").value,10) || 1, 1, 4096);
+    for(let i=0;i<n;i++) acquireOne();
+    renderAll();
+  };
+  $("btnClearK").onclick = () => { clearKspace(); renderAll(); log("> clear k-space"); };
+  $("btnRecon").onclick = () => { reconstruct(); renderAll(); log("> recon"); };
+  $("btnZeroK").onclick = () => { kx=0; ky=0; renderAll(); log("> zerok"); };
+  $("btnFill").onclick = () => { PD.fill(ctl.pd); renderAll(); log(`> fill pd ${ctl.pd.toFixed(2)}`); };
+  $("btnClearPhantom").onclick = () => { PD.fill(0); sel=null; renderAll(); log("> clear pd"); };
+  $("btnFFT").onclick = () => { ctl.showFFT = !ctl.showFFT; if(ctl.showFFT) computeAdcFFTMag(); drawADC(); };
+
+  // =========================
+  // Init phantom & magnetization
+  // =========================
+  function resetMagnetization() {
+    // Equilibrium: along +Z with magnitude PD (so empty pixels have no magnetization)
+    for(let i=0;i<N*N;i++){
+      Mx[i]=0; My[i]=0; Mz[i]=PD[i];
+    }
+    ctl.t = 0;
+  }
+
+  // Start with a simple circle phantom
+  function initPhantom() {
+    PD.fill(0);
+    const cx = (N-1)/2, cy=(N-1)/2;
+    for(let y=0;y<N;y++){
+      for(let x=0;x<N;x++){
+        const dx=x-cx, dy=y-cy;
+        const r=Math.sqrt(dx*dx+dy*dy);
+        if(r<18) PD[y*N+x]=0.9;
+        if(r>6 && r<10 && x>cx) PD[y*N+x]=0.2;
+      }
+    }
+    resetMagnetization();
+  }
+
+  // =========================
+  // Phantom editor interactions
+  // =========================
+  function canvasToPixel(evt, canvas) {
+    const rect = canvas.getBoundingClientRect();
+    const x = (evt.clientX - rect.left) / rect.width;
+    const y = (evt.clientY - rect.top) / rect.height;
+    const px = Math.floor(x * canvas.width);
+    const py = Math.floor(y * canvas.height);
+    return {px, py};
+  }
+
+  function applyBrush(px, py, value) {
+    const r = ctl.pen|0;
+    const x0 = clampInt(px-r+1, 0, N-1);
+    const x1 = clampInt(px+r-1, 0, N-1);
+    const y0 = clampInt(py-r+1, 0, N-1);
+    const y1 = clampInt(py+r-1, 0, N-1);
+    for(let y=y0; y<=y1; y++){
+      for(let x=x0; x<=x1; x++){
+        const dx = x-px, dy=y-py;
+        if(dx*dx+dy*dy <= (r-0.2)*(r-0.2)){
+          const i = y*N+x;
+          PD[i] = value;
+          // Keep equilibrium consistent: if pixel is "created", put Mz near PD.
+          // Don't overwrite existing transverse components; just clamp Mz if empty->nonempty.
+          if(PD[i]===0){ Mx[i]=0; My[i]=0; Mz[i]=0; }
+          else { if(Math.abs(Mz[i])<1e-6 && Math.abs(Mx[i])<1e-6 && Math.abs(My[i])<1e-6) Mz[i]=PD[i]; }
+        }
+      }
+    }
+  }
+
+  function applyPDToSelection(value) {
+    if(!sel) return;
+    for(let y=sel.y0; y<=sel.y1; y++){
+      for(let x=sel.x0; x<=sel.x1; x++){
+        const i=y*N+x;
+        PD[i]=value;
+        if(PD[i]===0){ Mx[i]=0; My[i]=0; Mz[i]=0; }
+        else { if(Math.abs(Mz[i])<1e-6 && Math.abs(Mx[i])<1e-6 && Math.abs(My[i])<1e-6) Mz[i]=PD[i]; }
+      }
+    }
+  }
+
+  let mouseDown = false;
+  let lastBtn = 0;
+
+  canvPh.addEventListener("mousedown", (e)=>{
+    mouseDown = true;
+    lastBtn = e.button;
+    const {px,py} = canvasToPixel(e, canvPh);
+
+    if(ctl.tool === "draw"){
+      if(e.button===2) applyBrush(px,py,0);
+      else applyBrush(px,py,ctl.pd);
+      sel = null;
+    } else { // select
+      if(e.button===0){
+        isDragging = true;
+        dragStart = {x:px, y:py};
+        sel = {x0:px,y0:py,x1:px,y1:py};
+      }
+    }
+    updateSelInfo();
+    renderAll();
+  });
+
+  canvPh.addEventListener("mousemove", (e)=>{
+    if(!mouseDown) return;
+    const {px,py} = canvasToPixel(e, canvPh);
+
+    if(ctl.tool==="draw"){
+      if(lastBtn===2) applyBrush(px,py,0);
+      else applyBrush(px,py,ctl.pd);
+      renderAll();
+    } else {
+      if(isDragging && sel && dragStart){
+        sel.x0 = Math.min(dragStart.x, px);
+        sel.y0 = Math.min(dragStart.y, py);
+        sel.x1 = Math.max(dragStart.x, px);
+        sel.y1 = Math.max(dragStart.y, py);
+        updateSelInfo();
+        renderAll();
+      }
+    }
+  });
+
+  window.addEventListener("mouseup", ()=>{
+    mouseDown = false;
+    isDragging = false;
+    dragStart = null;
+  });
+
+  // When PD slider changes, apply to selection if present & tool=select
+  $("pdSlider").addEventListener("input", ()=>{
+    if(ctl.tool==="select" && sel){
+      applyPDToSelection(ctl.pd);
+      renderAll();
+    }
+  });
+
+  function updateSelInfo(){
+    $("selInfo").textContent = sel ? `Selection: ${sel.x0},${sel.y0} → ${sel.x1},${sel.y1}` : "Selection: none";
+  }
+
+  // =========================
+  // Bloch update (toy)
+  // =========================
+  function stepSim(steps=1){
+    for(let s=0;s<steps;s++){
+      const dt = ctl.dt;
+      ctl.t += dt;
+
+      // Update k-space position (toy)
+      kx += ctl.gx * dt;
+      ky += ctl.gy * dt;
+
+      const b0 = ctl.b0;
+      const b1m = ctl.b1m;
+      const b1f = ctl.b1f;
+      const ph = ctl.b1pDeg * Math.PI/180;
+
+      // B1 in lab: B1x = b1m*cos(b1f*t + ph), B1y = b1m*sin(...)
+      // (toy rotating field)
+      const ang = b1f * ctl.t + ph;
+      const b1x = b1m * Math.cos(ang);
+      const b1y = b1m * Math.sin(ang);
+
+      // Toy relaxation toward equilibrium (0,0,PD)
+      const R = ctl.relax;
+
+      // Spatial coords centered [-0.5..0.5]
+      for(let y=0;y<N;y++){
+        const yy = (y - (N-1)/2) / N;
+        for(let x=0;x<N;x++){
+          const xx = (x - (N-1)/2) / N;
+          const i = y*N+x;
+          const pd = PD[i];
+          if(pd<=0){
+            Mx[i]=0; My[i]=0; Mz[i]=0;
+            continue;
+          }
+
+          // Position-dependent frequency offset from gradients
+          // (toy: treat as additional Bz)
+          const bz = b0 + (ctl.gx * xx + ctl.gy * yy);
+
+          // Effective B field
+          const Bx = b1x;
+          const By = b1y;
+          const Bz = bz;
+
+          // Bloch (no units): dM = gamma * (M x B) + relax
+          const mx = Mx[i], my = My[i], mz = Mz[i];
+          // M x B
+          const cx = my*Bz - mz*By;
+          const cy = mz*Bx - mx*Bz;
+          const cz = mx*By - my*Bx;
+
+          let dmx = GAMMA*cx;
+          let dmy = GAMMA*cy;
+          let dmz = GAMMA*cz;
+
+          // Relaxation: drive Mz to pd, and damp Mx/My to 0
+          dmx += -R*mx;
+          dmy += -R*my;
+          dmz += -R*(mz - pd);
+
+          // Euler
+          Mx[i] = mx + dmx*dt;
+          My[i] = my + dmy*dt;
+          Mz[i] = mz + dmz*dt;
+        }
+      }
+    }
+  }
+
+  // =========================
+  // Acquisition & gridding
+  // =========================
+  function acquireOne(){
+    // One sample = sum PD*(Mx + i My)
+    let re=0, im=0;
+    for(let i=0;i<N*N;i++){
+      const pd=PD[i];
+      if(pd<=0) continue;
+      re += pd * Mx[i];
+      im += pd * My[i];
+    }
+    adcRe.push(re);
+    adcIm.push(im);
+    $("adcCount").textContent = String(adcRe.length);
+
+    // Drop into nearest k-space bin (toy)
+    // Map kx,ky in approximately [-N/2..N/2] bins.
+    // You can drive gradients to move around.
+    const bx = Math.round(kx + (N/2));
+    const by = Math.round(ky + (N/2));
+    if(bx>=0 && bx<N && by>=0 && by<N){
+      const idx = by*N+bx;
+      const h = KHit[idx] + 1;
+      // running average
+      KRe[idx] = (KRe[idx]*(h-1) + re)/h;
+      KIm[idx] = (KIm[idx]*(h-1) + im)/h;
+      KHit[idx] = h;
+    }
+    if(ctl.showFFT) computeAdcFFTMag();
+  }
+
+  function clearADC(){
+    adcRe = [];
+    adcIm = [];
+    adcFFTMag = null;
+    $("adcCount").textContent = "0";
+  }
+
+  function clearKspace(){
+    KRe.fill(0); KIm.fill(0); KHit.fill(0);
+  }
+
+  // =========================
+  // Frames & display transforms
+  // =========================
+  function rotateXY(mx,my,angle){
+    const c=Math.cos(angle), s=Math.sin(angle);
+    return {x: mx*c + my*s, y: -mx*s + my*c};
+  }
+
+  function getFrameXY(mx,my){
+    // Convert transverse components into chosen frame
+    // lab: no change
+    // b0: rotate by -b0*t (remove B0 precession)
+    // b1: rotate by -b1f*t (remove RF phase evolution)
+    if(ctl.frame==="lab") return {x:mx, y:my};
+    if(ctl.frame==="b0"){
+      return rotateXY(mx,my, ctl.b0*ctl.t);
+    }
+    if(ctl.frame==="b1"){
+      return rotateXY(mx,my, ctl.b1f*ctl.t);
+    }
+    return {x:mx,y:my};
+  }
+
+  // =========================
+  // FFT helpers (radix-2)
+  // =========================
+  function bitReverse(n, bits){
+    let r=0;
+    for(let i=0;i<bits;i++){
+      r = (r<<1) | (n&1);
+      n >>= 1;
+    }
+    return r;
+  }
+
+  function fft1d(re, im, inverse=false){
+    const n=re.length;
+    const bits = Math.round(Math.log2(n));
+    // bit-reversal permutation
+    for(let i=0;i<n;i++){
+      const j = bitReverse(i,bits);
+      if(j>i){
+        [re[i],re[j]]=[re[j],re[i]];
+        [im[i],im[j]]=[im[j],im[i]];
+      }
+    }
+    for(let len=2; len<=n; len<<=1){
+      const ang = (inverse ? 2 : -2) * Math.PI / len;
+      const wlenRe = Math.cos(ang);
+      const wlenIm = Math.sin(ang);
+      for(let i=0;i<n;i+=len){
+        let wRe=1, wIm=0;
+        for(let j=0;j<len/2;j++){
+          const uRe=re[i+j], uIm=im[i+j];
+          const vRe=re[i+j+len/2]*wRe - im[i+j+len/2]*wIm;
+          const vIm=re[i+j+len/2]*wIm + im[i+j+len/2]*wRe;
+          re[i+j] = uRe + vRe;
+          im[i+j] = uIm + vIm;
+          re[i+j+len/2] = uRe - vRe;
+          im[i+j+len/2] = uIm - vIm;
+          const nwRe = wRe*wlenRe - wIm*wlenIm;
+          const nwIm = wRe*wlenIm + wIm*wlenRe;
+          wRe=nwRe; wIm=nwIm;
+        }
+      }
+    }
+    if(inverse){
+      for(let i=0;i<n;i++){ re[i]/=n; im[i]/=n; }
+    }
+  }
+
+  function ifft2_fromKspace(){
+    // Copy K into complex arrays
+    const re = new Float32Array(N*N);
+    const im = new Float32Array(N*N);
+    for(let i=0;i<N*N;i++){ re[i]=KRe[i]; im[i]=KIm[i]; }
+
+    // IFFT rows
+    for(let y=0;y<N;y++){
+      const r = new Float32Array(N);
+      const ii = new Float32Array(N);
+      for(let x=0;x<N;x++){
+        const idx=y*N+x;
+        r[x]=re[idx]; ii[x]=im[idx];
+      }
+      fft1d(r,ii,true);
+      for(let x=0;x<N;x++){
+        const idx=y*N+x;
+        re[idx]=r[x]; im[idx]=ii[x];
+      }
+    }
+
+    // IFFT cols
+    for(let x=0;x<N;x++){
+      const r = new Float32Array(N);
+      const ii = new Float32Array(N);
+      for(let y=0;y<N;y++){
+        const idx=y*N+x;
+        r[y]=re[idx]; ii[y]=im[idx];
+      }
+      fft1d(r,ii,true);
+      for(let y=0;y<N;y++){
+        const idx=y*N+x;
+        re[idx]=r[y]; im[idx]=ii[y];
+      }
+    }
+
+    IRe = re; IIm = im;
+  }
+
+  // =========================
+  // ADC FFT magnitude (for quick look)
+  // =========================
+  function nextPow2(n){
+    let p=1; while(p<n) p<<=1; return p;
+  }
+
+  function computeAdcFFTMag(){
+    const n0 = adcRe.length;
+    if(n0<2){ adcFFTMag=null; return; }
+    const n = nextPow2(n0);
+    const re = new Float32Array(n);
+    const im = new Float32Array(n);
+    for(let i=0;i<n0;i++){ re[i]=adcRe[i]; im[i]=adcIm[i]; }
+    // zero padding remainder
+    fft1d(re,im,false);
+    const mag = new Float32Array(n/2);
+    for(let k=0;k<n/2;k++){
+      mag[k]=Math.hypot(re[k],im[k]);
+    }
+    adcFFTMag = mag;
+  }
+
+  // =========================
+  // Reconstruction
+  // =========================
+  function reconstruct(){
+    ifft2_fromKspace();
+  }
+
+  // =========================
+  // Rendering
+  // =========================
+  function drawPhantom(){
+    const img = ctxPh.createImageData(N,N);
+    for(let i=0;i<N*N;i++){
+      const v = clamp01(PD[i]);
+      const c = Math.floor(v*255);
+      img.data[i*4+0]=c;
+      img.data[i*4+1]=c;
+      img.data[i*4+2]=c;
+      img.data[i*4+3]=255;
+    }
+    ctxPh.putImageData(img,0,0);
+
+    // draw selection overlay
+    if(sel){
+      ctxPh.save();
+      ctxPh.strokeStyle = "rgba(74,163,255,0.95)";
+      ctxPh.lineWidth = 1;
+      ctxPh.strokeRect(sel.x0+0.5, sel.y0+0.5, (sel.x1-sel.x0+1), (sel.y1-sel.y0+1));
+      ctxPh.restore();
+    }
+  }
+
+  function drawSpin(){
+    const w=canvSpin.width, h=canvSpin.height;
+    ctxSpin.clearRect(0,0,w,h);
+
+    // background grid
+    ctxSpin.save();
+    ctxSpin.strokeStyle = "rgba(46,64,88,0.35)";
+    ctxSpin.lineWidth = 1;
+    const step = w/N;
+    for(let i=0;i<=N;i++){
+      const p=i*step;
+      ctxSpin.beginPath(); ctxSpin.moveTo(p,0); ctxSpin.lineTo(p,h); ctxSpin.stroke();
+      ctxSpin.beginPath(); ctxSpin.moveTo(0,p); ctxSpin.lineTo(w,p); ctxSpin.stroke();
+    }
+    ctxSpin.restore();
+
+    const mode = ctl.spinDisp;
+    const cell = w/N;
+
+    if(mode==="vectors"){
+      ctxSpin.save();
+      ctxSpin.lineWidth = 1;
+      ctxSpin.strokeStyle = "rgba(124,255,200,0.95)";
+      ctxSpin.fillStyle = "rgba(124,255,200,0.95)";
+
+      for(let y=0;y<N;y++){
+        for(let x=0;x<N;x++){
+          const i=y*N+x;
+          if(PD[i]<=0) continue;
+          const f = getFrameXY(Mx[i],My[i]);
+          const mx=f.x, my=f.y;
+          const mxy = Math.hypot(mx,my);
+          if(mxy<1e-4) continue;
+          const cx = (x+0.5)*cell;
+          const cy = (y+0.5)*cell;
+          const len = clamp(mxy*8, 0, cell*0.45);
+          const ang = Math.atan2(my,mx);
+          const x2 = cx + len*Math.cos(ang);
+          const y2 = cy + len*Math.sin(ang);
+
+          ctxSpin.beginPath();
+          ctxSpin.moveTo(cx,cy);
+          ctxSpin.lineTo(x2,y2);
+          ctxSpin.stroke();
+
+          // arrow head
+          const ah=2.2;
+          ctxSpin.beginPath();
+          ctxSpin.moveTo(x2,y2);
+          ctxSpin.lineTo(x2 - ah*Math.cos(ang-0.6), y2 - ah*Math.sin(ang-0.6));
+          ctxSpin.lineTo(x2 - ah*Math.cos(ang+0.6), y2 - ah*Math.sin(ang+0.6));
+          ctxSpin.closePath();
+          ctxSpin.fill();
+        }
+      }
+      ctxSpin.restore();
+      return;
+    }
+
+    // Scalar color maps: phase / mz / mxy
+    const img = ctxSpin.createImageData(w,h);
+    // We'll paint per-cell blocks for speed
+    function setBlock(x,y,rgba){
+      const x0=Math.floor(x*cell), y0=Math.floor(y*cell);
+      const x1=Math.floor((x+1)*cell), y1=Math.floor((y+1)*cell);
+      for(let yy=y0;yy<y1;yy++){
+        for(let xx=x0;xx<x1;xx++){
+          const p=(yy*w+xx)*4;
+          img.data[p+0]=rgba[0];
+          img.data[p+1]=rgba[1];
+          img.data[p+2]=rgba[2];
+          img.data[p+3]=rgba[3];
+        }
+      }
+    }
+
+    for(let y=0;y<N;y++){
+      for(let x=0;x<N;x++){
+        const i=y*N+x;
+        if(PD[i]<=0){
+          setBlock(x,y,[7,16,25,255]); // background
+          continue;
+        }
+
+        if(mode==="mz"){
+          const v = (Mz[i]/Math.max(PD[i],1e-6)); // approx normalized
+          const vv = clamp01(0.5 + 0.5*v);
+          const c = Math.floor(vv*255);
+          setBlock(x,y,[c,c,c,255]);
+        } else if(mode==="mxy"){
+          const f=getFrameXY(Mx[i],My[i]);
+          const mxy=Math.hypot(f.x,f.y);
+          const vv = clamp01(mxy); // toy
+          const c = Math.floor(vv*255);
+          setBlock(x,y,[c,c,c,255]);
+        } else if(mode==="phase"){
+          const f=getFrameXY(Mx[i],My[i]);
+          const ang=Math.atan2(f.y,f.x); // [-pi,pi]
+          const hue = (ang + Math.PI) / (2*Math.PI); // [0,1]
+          const rgb = hsvToRgb(hue, 0.9, 0.9);
+          setBlock(x,y,[rgb[0],rgb[1],rgb[2],255]);
+        }
+      }
+    }
+    ctxSpin.putImageData(img,0,0);
+  }
+
+  function drawKpos(){
+    const w=canvKpos.width, h=canvKpos.height;
+    ctxKpos.clearRect(0,0,w,h);
+
+    // axes box
+    ctxKpos.save();
+    ctxKpos.strokeStyle = "rgba(46,64,88,0.9)";
+    ctxKpos.lineWidth = 2;
+    ctxKpos.strokeRect(8,8,w-16,h-16);
+    ctxKpos.restore();
+
+    // center
+    const cx=w/2, cy=h/2;
+    ctxKpos.save();
+    ctxKpos.strokeStyle="rgba(46,64,88,0.6)";
+    ctxKpos.beginPath(); ctxKpos.moveTo(cx,8); ctxKpos.lineTo(cx,h-8); ctxKpos.stroke();
+    ctxKpos.beginPath(); ctxKpos.moveTo(8,cy); ctxKpos.lineTo(w-8,cy); ctxKpos.stroke();
+    ctxKpos.restore();
+
+    // point
+    const scale = (w-16)/N; // toy: 1 k unit ≈ 1 pixel in kspace bin
+    const px = cx + kx*scale;
+    const py = cy + ky*scale;
+    ctxKpos.save();
+    ctxKpos.fillStyle="rgba(74,163,255,0.95)";
+    ctxKpos.beginPath(); ctxKpos.arc(px,py,5,0,Math.PI*2); ctxKpos.fill();
+    ctxKpos.restore();
+
+    $("kxTxt").textContent = kx.toFixed(2);
+    $("kyTxt").textContent = ky.toFixed(2);
+  }
+
+  function drawADC(){
+    const w=canvADC.width, h=canvADC.height;
+    ctxADC.clearRect(0,0,w,h);
+
+    // background
+    ctxADC.save();
+    ctxADC.strokeStyle="rgba(46,64,88,0.45)";
+    ctxADC.lineWidth=1;
+    ctxADC.strokeRect(8,8,w-16,h-16);
+    ctxADC.restore();
+
+    const n = adcRe.length;
+    if(n<2) return;
+
+    // choose data series
+    if(ctl.showFFT && adcFFTMag){
+      const mag = adcFFTMag;
+      const m = mag.length;
+      const maxV = Math.max(...mag);
+      ctxADC.save();
+      ctxADC.strokeStyle="rgba(255,204,102,0.95)";
+      ctxADC.lineWidth=2;
+      ctxADC.beginPath();
+      for(let i=0;i<m;i++){
+        const x = 8 + (w-16) * (i/(m-1));
+        const y = 8 + (h-16) * (1 - (mag[i]/(maxV||1)));
+        if(i===0) ctxADC.moveTo(x,y); else ctxADC.lineTo(x,y);
+      }
+      ctxADC.stroke();
+      ctxADC.restore();
+      // label
+      ctxADC.save();
+      ctxADC.fillStyle="rgba(255,204,102,0.9)";
+      ctxADC.font="12px var(--mono)";
+      ctxADC.fillText("FFT |ADC|", 12, 20);
+      ctxADC.restore();
+      return;
+    }
+
+    const view = ctl.adcView;
+    // Compute scaling
+    let maxAbs = 0;
+    if(view==="mag"){
+      for(let i=0;i<n;i++) maxAbs = Math.max(maxAbs, Math.hypot(adcRe[i],adcIm[i]));
+    } else {
+      for(let i=0;i<n;i++) maxAbs = Math.max(maxAbs, Math.abs(adcRe[i]), Math.abs(adcIm[i]));
+    }
+    maxAbs = maxAbs || 1;
+
+    // plot Re and Im (or Mag)
+    function plot(series, color){
+      ctxADC.save();
+      ctxADC.strokeStyle = color;
+      ctxADC.lineWidth = 2;
+      ctxADC.beginPath();
+      for(let i=0;i<n;i++){
+        const x = 8 + (w-16) * (i/(n-1));
+        const y = 8 + (h-16) * (0.5 - 0.45*(series(i)/maxAbs));
+        if(i===0) ctxADC.moveTo(x,y); else ctxADC.lineTo(x,y);
+      }
+      ctxADC.stroke();
+      ctxADC.restore();
+    }
+
+    if(view==="mag"){
+      plot((i)=>Math.hypot(adcRe[i],adcIm[i]), "rgba(124,255,200,0.95)");
+    } else {
+      plot((i)=>adcRe[i], "rgba(74,163,255,0.95)");
+      plot((i)=>adcIm[i], "rgba(255,107,107,0.9)");
+      ctxADC.save();
+      ctxADC.fillStyle="rgba(74,163,255,0.85)";
+      ctxADC.font="12px var(--mono)";
+      ctxADC.fillText("Re", 12, 20);
+      ctxADC.fillStyle="rgba(255,107,107,0.85)";
+      ctxADC.fillText("Im", 38, 20);
+      ctxADC.restore();
+    }
+  }
+
+  function drawKspace(){
+    const w=canvK.width, h=canvK.height;
+    const img = ctxK.createImageData(w,h);
+    const cell = w/N;
+
+    // Find normalization
+    let maxV=1e-9;
+    for(let i=0;i<N*N;i++){
+      const v = Math.hypot(KRe[i],KIm[i]);
+      if(v>maxV) maxV=v;
+    }
+    const mode = ctl.kDisp;
+
+    function valToRGBA(re,im){
+      if(mode==="mag"){
+        const vv = Math.hypot(re,im)/maxV;
+        const c = Math.floor(clamp01(Math.sqrt(vv))*255);
+        return [c,c,c,255];
+      }
+      if(mode==="phase"){
+        const ang = Math.atan2(im,re);
+        const hue = (ang + Math.PI)/(2*Math.PI);
+        const rgb = hsvToRgb(hue, 0.9, 0.9);
+        return [rgb[0],rgb[1],rgb[2],255];
+      }
+      if(mode==="re"){
+        const vv = 0.5 + 0.5*(re/maxV);
+        const c = Math.floor(clamp01(vv)*255);
+        return [c,c,c,255];
+      }
+      if(mode==="im"){
+        const vv = 0.5 + 0.5*(im/maxV);
+        const c = Math.floor(clamp01(vv)*255);
+        return [c,c,c,255];
+      }
+      return [0,0,0,255];
+    }
+
+    // paint blocks
+    for(let y=0;y<N;y++){
+      for(let x=0;x<N;x++){
+        const idx=y*N+x;
+        const rgba = valToRGBA(KRe[idx],KIm[idx]);
+        const x0=Math.floor(x*cell), y0=Math.floor(y*cell);
+        const x1=Math.floor((x+1)*cell), y1=Math.floor((y+1)*cell);
+        for(let yy=y0;yy<y1;yy++){
+          for(let xx=x0;xx<x1;xx++){
+            const p=(yy*w+xx)*4;
+            img.data[p+0]=rgba[0];
+            img.data[p+1]=rgba[1];
+            img.data[p+2]=rgba[2];
+            img.data[p+3]=255;
+          }
+        }
+      }
+    }
+    ctxK.putImageData(img,0,0);
+
+    // draw kpos marker (nearest bin)
+    const bx = clampInt(Math.round(kx + (N/2)), 0, N-1);
+    const by = clampInt(Math.round(ky + (N/2)), 0, N-1);
+    ctxK.save();
+    ctxK.strokeStyle="rgba(74,163,255,0.95)";
+    ctxK.lineWidth=2;
+    ctxK.strokeRect(bx*cell+1, by*cell+1, cell-2, cell-2);
+    ctxK.restore();
+  }
+
+  function drawRecon(){
+    const w=canvRecon.width, h=canvRecon.height;
+    const img = ctxRecon.createImageData(w,h);
+    const cell = w/N;
+
+    // Find normalization
+    let maxMag=1e-9;
+    for(let i=0;i<N*N;i++){
+      const v = Math.hypot(IRe[i],IIm[i]);
+      if(v>maxMag) maxMag=v;
+    }
+    const mode = ctl.reconDisp;
+
+    function valToRGBA(re,im){
+      if(mode==="mag"){
+        const vv = Math.hypot(re,im)/maxMag;
+        const c = Math.floor(clamp01(Math.sqrt(vv))*255);
+        return [c,c,c,255];
+      }
+      if(mode==="phase"){
+        const ang = Math.atan2(im,re);
+        const hue = (ang + Math.PI)/(2*Math.PI);
+        const rgb = hsvToRgb(hue, 0.9, 0.9);
+        return [rgb[0],rgb[1],rgb[2],255];
+      }
+      if(mode==="re"){
+        const vv = 0.5 + 0.5*(re/maxMag);
+        const c = Math.floor(clamp01(vv)*255);
+        return [c,c,c,255];
+      }
+      if(mode==="im"){
+        const vv = 0.5 + 0.5*(im/maxMag);
+        const c = Math.floor(clamp01(vv)*255);
+        return [c,c,c,255];
+      }
+      return [0,0,0,255];
+    }
+
+    for(let y=0;y<N;y++){
+      for(let x=0;x<N;x++){
+        const idx=y*N+x;
+        const rgba=valToRGBA(IRe[idx],IIm[idx]);
+        const x0=Math.floor(x*cell), y0=Math.floor(y*cell);
+        const x1=Math.floor((x+1)*cell), y1=Math.floor((y+1)*cell);
+        for(let yy=y0;yy<y1;yy++){
+          for(let xx=x0;xx<x1;xx++){
+            const p=(yy*w+xx)*4;
+            img.data[p+0]=rgba[0];
+            img.data[p+1]=rgba[1];
+            img.data[p+2]=rgba[2];
+            img.data[p+3]=255;
+          }
+        }
+      }
+    }
+    ctxRecon.putImageData(img,0,0);
+  }
+
+  function renderAll(){
+    drawPhantom();
+    drawSpin();
+    drawKpos();
+    drawADC();
+    drawKspace();
+    drawRecon();
+  }
+
+  // =========================
+  // Console + PSD scripting
+  // =========================
+  const consoleOut = $("consoleOut");
+  const consoleIn = $("consoleIn");
+  const btnExec = $("btnExec");
+
+  const history = [];
+  let histIdx = -1;
+
+  const COMMANDS = [
+    "help","reset","run","stop","step","dt","b0","b1","grad","rf","delay","adc",
+    "zerok","cleark","clearadc","recon"
+  ];
+
+  function log(msg){
+    consoleOut.textContent += msg + "\n";
+    consoleOut.scrollTop = consoleOut.scrollHeight;
+  }
+
+  function parseArgs(tokens){
+    return tokens.slice(1).map(t => {
+      const v = Number(t);
+      return Number.isFinite(v) ? v : t;
+    });
+  }
+
+  function execLine(line){
+    const raw = line.trim();
+    if(!raw) return;
+
+    history.push(raw);
+    histIdx = history.length;
+
+    log("> " + raw);
+
+    const tokens = raw.split(/\s+/);
+    const cmd = tokens[0].toLowerCase();
+    const args = parseArgs(tokens);
+
+    const bad = (m)=>log("! " + m);
+
+    switch(cmd){
+      case "help":
+        log("Commands:");
+        log("  help");
+        log("  reset                 (reset magnetization to equilibrium)");
+        log("  run | stop            (toggle simulation loop)");
+        log("  step [n]              (advance n steps, default 1)");
+        log("  dt <value>");
+        log("  b0 <value>");
+        log("  b1 <mag> <freq> <phaseDeg>");
+        log("  grad <gx> <gy>");
+        log("  rf <mag> <freq> <phaseDeg> <durSteps>   (apply B1 for durSteps, then B1 mag returns to 0)");
+        log("  delay <durSteps>      (free precession)");
+        log("  adc <n>               (acquire n samples, stepping each time)");
+        log("  zerok | cleark | clearadc");
+        log("  recon");
+        break;
+
+      case "reset":
+        resetMagnetization(); renderAll();
+        break;
+
+      case "run":
+        ctl.running=true; updateStatus();
+        break;
+
+      case "stop":
+        ctl.running=false; updateStatus();
+        break;
+
+      case "step": {
+        const n = clampInt((args[0]??1)|0, 1, 100000);
+        stepSim(n); renderAll();
+        break;
+      }
+
+      case "dt":
+        if(args.length<1) return bad("usage: dt <value>");
+        setSlider("dtSlider", args[0], 0.05, 2.0);
+        break;
+
+      case "b0":
+        if(args.length<1) return bad("usage: b0 <value>");
+        setSlider("b0Slider", args[0], 0, 5);
+        break;
+
+      case "b1":
+        if(args.length<3) return bad("usage: b1 <mag> <freq> <phaseDeg>");
+        setSlider("b1mSlider", args[0], 0, 2);
+        setSlider("b1fSlider", args[1], 0, 5);
+        setSlider("b1pSlider", args[2], -180, 180, true);
+        break;
+
+      case "grad":
+        if(args.length<2) return bad("usage: grad <gx> <gy>");
+        setSlider("gxSlider", args[0], -2, 2);
+        setSlider("gySlider", args[1], -2, 2);
+        break;
+
+      case "delay": {
+        const n = clampInt((args[0]??1)|0, 1, 200000);
+        stepSim(n); renderAll();
+        break;
+      }
+
+      case "adc": {
+        const n = clampInt((args[0]??1)|0, 1, 200000);
+        for(let i=0;i<n;i++){
+          // step then acquire (common convention), but either is fine for toy.
+          stepSim(1);
+          acquireOne();
+        }
+        renderAll();
+        break;
+      }
+
+      case "rf": {
+        if(args.length<4) return bad("usage: rf <mag> <freq> <phaseDeg> <durSteps>");
+        const [mag,freq,phDeg,dur] = args;
+        const durSteps = clampInt(dur|0, 1, 200000);
+
+        // Save previous settings
+        const prevM = ctl.b1m, prevF = ctl.b1f, prevP = ctl.b1pDeg;
+
+        setSlider("b1mSlider", mag, 0, 2);
+        setSlider("b1fSlider", freq, 0, 5);
+        setSlider("b1pSlider", phDeg, -180, 180, true);
+
+        // apply for duration
+        stepSim(durSteps);
+
+        // turn off B1 mag
+        setSlider("b1mSlider", 0, 0, 2);
+
+        // restore freq/phase if you want to keep them; here we keep freq/phase as-is
+        renderAll();
+        break;
+      }
+
+      case "zerok":
+        kx=0; ky=0; renderAll(); break;
+
+      case "cleark":
+        clearKspace(); renderAll(); break;
+
+      case "clearadc":
+        clearADC(); renderAll(); break;
+
+      case "recon":
+        reconstruct(); renderAll(); break;
+
+      default:
+        bad(`unknown command: ${cmd} (try: help)`);
+    }
+  }
+
+  function setSlider(id, value, lo, hi, isInt=false){
+    const el = $(id);
+    const v = clamp(value, lo, hi);
+    el.value = isInt ? String(Math.round(v)) : String(v);
+    el.dispatchEvent(new Event("input"));
+  }
+
+  btnExec.onclick = () => {
+    execLine(consoleIn.value);
+    consoleIn.value = "";
+    consoleIn.focus();
+  };
+
+  consoleIn.addEventListener("keydown", (e)=>{
+    if(e.key==="Enter"){
+      e.preventDefault();
+      btnExec.click();
+    } else if(e.key==="ArrowUp"){
+      e.preventDefault();
+      if(history.length===0) return;
+      histIdx = Math.max(0, histIdx-1);
+      consoleIn.value = history[histIdx] ?? "";
+      // move caret to end
+      consoleIn.setSelectionRange(consoleIn.value.length, consoleIn.value.length);
+    } else if(e.key==="ArrowDown"){
+      e.preventDefault();
+      if(history.length===0) return;
+      histIdx = Math.min(history.length, histIdx+1);
+      consoleIn.value = history[histIdx] ?? "";
+      consoleIn.setSelectionRange(consoleIn.value.length, consoleIn.value.length);
+    } else if(e.key==="Tab"){
+      e.preventDefault();
+      const cur = consoleIn.value.trimStart();
+      const tok = cur.split(/\s+/)[0] || "";
+      const matches = COMMANDS.filter(c => c.startsWith(tok.toLowerCase()));
+      if(matches.length===1){
+        // replace first token with match
+        const rest = cur.slice(tok.length);
+        consoleIn.value = matches[0] + rest;
+        consoleIn.setSelectionRange(consoleIn.value.length, consoleIn.value.length);
+      } else if(matches.length>1){
+        log("~ " + matches.join(" "));
+      }
+    }
+  });
+
+  // =========================
+  // Loop
+  // =========================
+  function updateStatus(){
+    statusPill.textContent = ctl.running ? "Running" : "Paused";
+    statusPill.style.borderColor = ctl.running ? "rgba(124,255,200,0.6)" : "rgba(46,64,88,0.9)";
+    $("btnRun").textContent = ctl.running ? "Pause" : "Run";
+  }
+
+  function loop(){
+    if(ctl.running){
+      // A few substeps per frame so it feels alive
+      stepSim(2);
+      renderAll();
+    }
+    requestAnimationFrame(loop);
+  }
+
+  // =========================
+  // Utility
+  // =========================
+  function clamp(v,lo,hi){ return Math.max(lo, Math.min(hi, v)); }
+  function clamp01(v){ return clamp(v,0,1); }
+  function clampInt(v,lo,hi){ v=v|0; return Math.max(lo, Math.min(hi, v)); }
+
+  function hsvToRgb(h, s, v){
+    // h in [0,1]
+    const i = Math.floor(h*6);
+    const f = h*6 - i;
+    const p = v*(1-s);
+    const q = v*(1-f*s);
+    const t = v*(1-(1-f)*s);
+    let r,g,b;
+    switch(i%6){
+      case 0: r=v; g=t; b=p; break;
+      case 1: r=q; g=v; b=p; break;
+      case 2: r=p; g=v; b=t; break;
+      case 3: r=p; g=q; b=v; break;
+      case 4: r=t; g=p; b=v; break;
+      case 5: r=v; g=p; b=q; break;
+    }
+    return [Math.floor(r*255), Math.floor(g*255), Math.floor(b*255)];
+  }
+
+  // =========================
+  // Kickoff
+  // =========================
+  initPhantom();
+  clearKspace();
+  clearADC();
+  reconstruct(); // initial empty recon
+  updateStatus();
+  log("MRI Toy Simulator ready. Type 'help' in the console.");
+  renderAll();
+  loop();
+
+})();
+</script>
+</body>
+</html>
