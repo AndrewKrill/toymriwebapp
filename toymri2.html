@@ -930,7 +930,7 @@ canvas{
   }
 
   function ifft2_fromKspace(){
-    // Copy K into complex arrays
+    // Copy K into complex arrays (ifftshift: center -> origin)
     const re = new Float32Array(N*N);
     const im = new Float32Array(N*N);
     const half = Math.floor(N/2);
@@ -975,7 +975,21 @@ canvas{
       }
     }
 
-    IRe = re; IIm = im;
+    // fftshift the reconstructed image so the object appears centered
+    const outRe = new Float32Array(N*N);
+    const outIm = new Float32Array(N*N);
+    for(let y=0;y<N;y++){
+      const srcY = (y + half) % N;
+      for(let x=0;x<N;x++){
+        const srcX = (x + half) % N;
+        const dstIdx = y*N + x;
+        const srcIdx = srcY*N + srcX;
+        outRe[dstIdx] = re[srcIdx];
+        outIm[dstIdx] = im[srcIdx];
+      }
+    }
+
+    IRe = outRe; IIm = outIm;
   }
 
   // =========================
