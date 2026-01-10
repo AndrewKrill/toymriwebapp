@@ -779,26 +779,35 @@ canvas{
           const By = b1y;
           const Bz = bz;
 
-          // Bloch (no units): dM = gamma * (M x B) + relax
-          const mx = Mx[i], my = My[i], mz = Mz[i];
-          // M x B
-          const cx = my*Bz - mz*By;
-          const cy = mz*Bx - mx*Bz;
-          const cz = mx*By - my*Bx;
+          let mx = Mx[i], my = My[i], mz = Mz[i];
 
-          let dmx = GAMMA*cx;
-          let dmy = GAMMA*cy;
-          let dmz = GAMMA*cz;
+          // Precession via Rodrigues rotation (avoids Euler energy growth)
+          const bmag = Math.hypot(Bx, By, Bz);
+          if(bmag > 0){
+            const kx = Bx / bmag;
+            const ky = By / bmag;
+            const kz = Bz / bmag;
+            const theta = GAMMA * bmag * dt;
+            const cosT = Math.cos(theta);
+            const sinT = Math.sin(theta);
+            const dot = mx*kx + my*ky + mz*kz;
+            const cx = ky*mz - kz*my;
+            const cy = kz*mx - kx*mz;
+            const cz = kx*my - ky*mx;
+            mx = mx*cosT + cx*sinT + kx*dot*(1 - cosT);
+            my = my*cosT + cy*sinT + ky*dot*(1 - cosT);
+            mz = mz*cosT + cz*sinT + kz*dot*(1 - cosT);
+          }
 
           // Relaxation: drive Mz to pd, and damp Mx/My to 0
-          dmx += -R*mx;
-          dmy += -R*my;
-          dmz += -R*(mz - pd);
+          const expR = Math.exp(-R*dt);
+          mx *= expR;
+          my *= expR;
+          mz = mz*expR + pd*(1 - expR);
 
-          // Euler
-          Mx[i] = mx + dmx*dt;
-          My[i] = my + dmy*dt;
-          Mz[i] = mz + dmz*dt;
+          Mx[i] = mx;
+          My[i] = my;
+          Mz[i] = mz;
         }
       }
     }
