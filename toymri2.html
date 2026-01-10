@@ -965,7 +965,20 @@ canvas{
       }
     }
 
-    IRe = re; IIm = im;
+    const shiftedRe = new Float32Array(N*N);
+    const shiftedIm = new Float32Array(N*N);
+    const half = Math.floor(N/2);
+    for(let y=0;y<N;y++){
+      const srcY = (y + half) % N;
+      for(let x=0;x<N;x++){
+        const srcX = (x + half) % N;
+        const idx = y*N + x;
+        const srcIdx = srcY*N + srcX;
+        shiftedRe[idx]=re[srcIdx];
+        shiftedIm[idx]=im[srcIdx];
+      }
+    }
+    IRe = shiftedRe; IIm = shiftedIm;
   }
 
   // =========================
