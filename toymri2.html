@@ -443,7 +443,8 @@ canvas{
           <button class="btn good" id="btnRunPsd">Run PSD</button>
         </div>
         <div class="hint">
-          Tip: use one command per line. Lines starting with <span style="font-family:var(--mono);">#</span> are treated as comments.
+          Tip: use one command per line. Lines starting with <span style="font-family:var(--mono);">#</span> are treated as comments. Use
+          <span style="font-family:var(--mono);">repeat N</span> ... <span style="font-family:var(--mono);">end</span> to loop blocks.
         </div>
       </div>
     </div>
@@ -1559,12 +1560,73 @@ canvas{
 
   function runPsdScript(script){
     const lines = script.split(/\r?\n/);
+    const expanded = expandPsdLines(lines);
+    if(!expanded) return;
     log("> run psd");
-    lines.forEach(line => {
-      const trimmed = line.trim();
-      if(!trimmed || trimmed.startsWith("#")) return;
-      execLine(trimmed);
-    });
+    expanded.forEach(line => execLine(line));
+  }
+
+  function expandPsdLines(lines){
+    const output = [];
+    const stack = [];
+    const MAX_LINES = 200000;
+
+    const pushLine = (line) => {
+      if(output.length >= MAX_LINES){
+        log("! PSD expansion exceeded max lines; aborting.");
+        return false;
+      }
+      output.push(line);
+      return true;
+    };
+
+    const pushToTarget = (line) => {
+      if(stack.length === 0){
+        return pushLine(line);
+      }
+      stack[stack.length - 1].lines.push(line);
+      return true;
+    };
+
+    for(const rawLine of lines){
+      const trimmed = rawLine.trim();
+      if(!trimmed || trimmed.startsWith("#")) continue;
+      const tokens = trimmed.split(/\s+/);
+      const cmd = tokens[0].toLowerCase();
+      if(cmd === "repeat" || cmd === "loop"){
+        const count = Number(tokens[1]);
+        if(!Number.isFinite(count) || count <= 0){
+          log("! repeat expects a positive count.");
+          return null;
+        }
+        stack.push({ count: Math.floor(count), lines: [] });
+        continue;
+      }
+      if(cmd === "end" || cmd === "endrepeat"){
+        if(stack.length === 0){
+          log("! unexpected end without repeat.");
+          return null;
+        }
+        const block = stack.pop();
+        for(let i = 0; i < block.count; i++){
+          for(const line of block.lines){
+            if(stack.length === 0){
+              if(!pushLine(line)) return null;
+            } else {
+              stack[stack.length - 1].lines.push(line);
+            }
+          }
+        }
+        continue;
+      }
+      if(!pushToTarget(trimmed)) return null;
+    }
+
+    if(stack.length > 0){
+      log("! repeat block missing end.");
+      return null;
+    }
+    return output;
   }
 
   function execLine(line){
@@ -1598,6 +1660,8 @@ canvas{
         log("  adc <n>               (acquire n samples, stepping each time)");
         log("  zerok | cleark | clearadc");
         log("  recon");
+        log("PSD only:");
+        log("  repeat <n> ... end     (loop a block in PSD scripts)");
         break;
 
       case "reset":
