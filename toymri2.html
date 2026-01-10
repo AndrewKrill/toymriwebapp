@@ -933,7 +933,17 @@ canvas{
     // Copy K into complex arrays
     const re = new Float32Array(N*N);
     const im = new Float32Array(N*N);
-    for(let i=0;i<N*N;i++){ re[i]=KRe[i]; im[i]=KIm[i]; }
+    const half = Math.floor(N/2);
+    for(let y=0;y<N;y++){
+      const srcY = (y + half) % N;
+      for(let x=0;x<N;x++){
+        const srcX = (x + half) % N;
+        const idx = y*N + x;
+        const srcIdx = srcY*N + srcX;
+        re[idx]=KRe[srcIdx];
+        im[idx]=KIm[srcIdx];
+      }
+    }
 
     // IFFT rows
     for(let y=0;y<N;y++){
