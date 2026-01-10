@@ -92,6 +92,86 @@
     .kv{display:grid; grid-template-columns: 1fr auto; gap:6px; align-items:center; font-size:12px;}
     .kv b{color:var(--fg)}
     .sep{height:1px; background:var(--line); margin:8px 0;}
+    .psdEditor{
+      width:100%;
+      min-height:160px;
+      font-family:var(--mono);
+      font-size:12px;
+      background:var(--panel2);
+      border:1px solid var(--line);
+      border-radius:10px;
+      color:var(--fg);
+      padding:8px;
+      resize:vertical;
+    }
+    .modal{
+      position:fixed;
+      inset:0;
+      background:rgba(3,6,10,0.75);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding:16px;
+      z-index:999;
+    }
+    .modal.open{display:flex;}
+    .modalContent{
+      width:min(980px, 94vw);
+      max-height:86vh;
+      background:var(--panel);
+      border:1px solid var(--line);
+      border-radius:16px;
+      box-shadow:0 12px 40px rgba(0,0,0,0.4);
+      padding:14px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .modalHeader{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+    }
+    .modalBody{
+      display:grid;
+      grid-template-columns: 1fr 1.2fr;
+      gap:12px;
+      overflow:hidden;
+    }
+    .psdList{
+      border:1px solid var(--line);
+      border-radius:12px;
+      background:var(--panel2);
+      padding:8px;
+      overflow:auto;
+      min-height:260px;
+    }
+    .psdItem{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+      padding:8px;
+      border:1px solid transparent;
+      border-radius:10px;
+    }
+    .psdItem:hover{
+      border-color:var(--line);
+      background:rgba(15,22,32,0.6);
+    }
+    .psdMeta{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+      font-size:12px;
+    }
+    .psdTag{
+      font-size:10px;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      color:var(--muted);
+    }
 	/* --- Compact layout tweaks --- */
 main{
   grid-template-columns: 320px 1fr;   /* slightly narrower left column */
@@ -325,6 +405,9 @@ canvas{
           <input class="consoleIn" id="consoleIn" type="text" spellcheck="false" placeholder="Type command (try: help)"/>
           <button class="btn" id="btnExec">Run</button>
         </div>
+        <div class="row">
+          <button class="btn secondary" id="btnPsdLibrary">PSD Library</button>
+        </div>
         <div class="hint">
           History: ↑/↓ • Autocomplete: Tab • Commands: <span style="font-family:var(--mono); color:var(--muted)">help, reset, run, stop, step, dt, b0, b1, grad, rf, delay, adc, zerok, cleark, clearadc, recon</span>
         </div>
@@ -333,6 +416,39 @@ canvas{
 
   </div>
 </main>
+
+<div class="modal" id="psdModal" aria-hidden="true">
+  <div class="modalContent">
+    <div class="modalHeader">
+      <div>
+        <div class="title">PSD Library</div>
+        <div class="sub">Save and run pulse sequence designs (PSDs).</div>
+      </div>
+      <button class="btn secondary" id="btnClosePsd">Close</button>
+    </div>
+    <div class="modalBody">
+      <div class="panelSection">
+        <h4>Saved PSDs</h4>
+        <div class="psdList" id="psdList"></div>
+      </div>
+      <div class="panelSection">
+        <h4>PSD Editor</h4>
+        <label>Name</label>
+        <input type="text" id="psdName" placeholder="e.g. GRE 2D"/>
+        <label style="margin-top:6px;">Script</label>
+        <textarea class="psdEditor" id="psdEditor" spellcheck="false"></textarea>
+        <div class="row" style="margin-top:6px;">
+          <button class="btn" id="btnSavePsd">Save PSD</button>
+          <button class="btn secondary" id="btnNewPsd">New</button>
+          <button class="btn good" id="btnRunPsd">Run PSD</button>
+        </div>
+        <div class="hint">
+          Tip: use one command per line. Lines starting with <span style="font-family:var(--mono);">#</span> are treated as comments.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script>
 (() => {
@@ -1255,6 +1371,15 @@ canvas{
   const consoleOut = $("consoleOut");
   const consoleIn = $("consoleIn");
   const btnExec = $("btnExec");
+  const btnPsdLibrary = $("btnPsdLibrary");
+  const psdModal = $("psdModal");
+  const btnClosePsd = $("btnClosePsd");
+  const psdList = $("psdList");
+  const psdName = $("psdName");
+  const psdEditor = $("psdEditor");
+  const btnSavePsd = $("btnSavePsd");
+  const btnNewPsd = $("btnNewPsd");
+  const btnRunPsd = $("btnRunPsd");
 
   const history = [];
   let histIdx = -1;
@@ -1263,6 +1388,44 @@ canvas{
     "help","reset","run","stop","step","dt","b0","b1","grad","rf","delay","adc",
     "zerok","cleark","clearadc","recon"
   ];
+
+  const PSD_DEFAULTS = [
+    {
+      id: "example-gre",
+      name: "GRE (Example)",
+      script: [
+        "# Gradient echo example",
+        "reset",
+        "cleark",
+        "clearadc",
+        "zerok",
+        "rf 1 1 0 8",
+        "grad 0.7 0",
+        "adc 64",
+        "recon"
+      ].join("\n")
+    },
+    {
+      id: "example-fse",
+      name: "FSE (Example)",
+      script: [
+        "# Fast spin echo example",
+        "reset",
+        "cleark",
+        "clearadc",
+        "zerok",
+        "rf 1 1 0 8",
+        "delay 8",
+        "rf 1 1 90 8",
+        "grad 0.5 0",
+        "adc 64",
+        "recon"
+      ].join("\n")
+    }
+  ];
+
+  let psdCustom = [];
+  const PSD_STORAGE_KEY = "mriToyPsdLibrary";
 
   function log(msg){
     consoleOut.textContent += msg + "\n";
@@ -1273,6 +1436,125 @@ canvas{
     return tokens.slice(1).map(t => {
       const v = Number(t);
       return Number.isFinite(v) ? v : t;
+    });
+  }
+
+  function loadPsdLibrary(){
+    const raw = localStorage.getItem(PSD_STORAGE_KEY);
+    if(!raw){
+      psdCustom = [];
+      return;
+    }
+    try{
+      const parsed = JSON.parse(raw);
+      psdCustom = Array.isArray(parsed) ? parsed : [];
+    } catch (err){
+      psdCustom = [];
+    }
+  }
+
+  function savePsdLibrary(){
+    localStorage.setItem(PSD_STORAGE_KEY, JSON.stringify(psdCustom));
+  }
+
+  function allPsdEntries(){
+    return [...PSD_DEFAULTS, ...psdCustom];
+  }
+
+  function renderPsdList(){
+    psdList.innerHTML = "";
+    allPsdEntries().forEach(entry => {
+      const item = document.createElement("div");
+      item.className = "psdItem";
+
+      const meta = document.createElement("div");
+      meta.className = "psdMeta";
+      const name = document.createElement("div");
+      name.textContent = entry.name;
+      const tag = document.createElement("div");
+      tag.className = "psdTag";
+      tag.textContent = entry.id.startsWith("example") ? "Example" : "Saved";
+      meta.appendChild(name);
+      meta.appendChild(tag);
+
+      const actions = document.createElement("div");
+      actions.className = "row";
+      const btnLoad = document.createElement("button");
+      btnLoad.className = "btn secondary";
+      btnLoad.textContent = "Load";
+      btnLoad.onclick = () => setPsdEditor(entry);
+      const btnRun = document.createElement("button");
+      btnRun.className = "btn good";
+      btnRun.textContent = "Run";
+      btnRun.onclick = () => runPsdScript(entry.script);
+      actions.appendChild(btnLoad);
+      actions.appendChild(btnRun);
+
+      if(!entry.id.startsWith("example")){
+        const btnDelete = document.createElement("button");
+        btnDelete.className = "btn bad";
+        btnDelete.textContent = "Delete";
+        btnDelete.onclick = () => deletePsd(entry.id);
+        actions.appendChild(btnDelete);
+      }
+
+      item.appendChild(meta);
+      item.appendChild(actions);
+      psdList.appendChild(item);
+    });
+  }
+
+  function setPsdEditor(entry){
+    psdName.value = entry.name;
+    psdEditor.value = entry.script;
+  }
+
+  function newPsdEditor(){
+    psdName.value = "";
+    psdEditor.value = "";
+  }
+
+  function makePsdId(){
+    return `custom-${Date.now()}-${Math.floor(Math.random()*1000)}`;
+  }
+
+  function saveCurrentPsd(){
+    const nameRaw = psdName.value.trim();
+    const script = psdEditor.value.trim();
+    if(!nameRaw || !script){
+      log("! PSD name and script are required.");
+      return;
+    }
+    let name = nameRaw;
+    if(PSD_DEFAULTS.some(entry => entry.name === name)){
+      name = `${name} (Custom)`;
+    }
+    const existing = psdCustom.find(entry => entry.name === name);
+    if(existing){
+      existing.script = script;
+      log(`> updated psd "${name}"`);
+    } else {
+      psdCustom.push({ id: makePsdId(), name, script });
+      log(`> saved psd "${name}"`);
+    }
+    savePsdLibrary();
+    renderPsdList();
+  }
+
+  function deletePsd(id){
+    psdCustom = psdCustom.filter(entry => entry.id !== id);
+    savePsdLibrary();
+    renderPsdList();
+    log("> deleted psd");
+  }
+
+  function runPsdScript(script){
+    const lines = script.split(/\r?\n/);
+    log("> run psd");
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      if(!trimmed || trimmed.startsWith("#")) return;
+      execLine(trimmed);
     });
   }
 
@@ -1420,6 +1702,30 @@ canvas{
     consoleIn.focus();
   };
 
+  btnPsdLibrary.onclick = () => {
+    psdModal.classList.add("open");
+    psdModal.setAttribute("aria-hidden","false");
+    renderPsdList();
+    if(!psdEditor.value){
+      setPsdEditor(PSD_DEFAULTS[0]);
+    }
+  };
+
+  btnClosePsd.onclick = () => {
+    psdModal.classList.remove("open");
+    psdModal.setAttribute("aria-hidden","true");
+  };
+
+  btnSavePsd.onclick = () => saveCurrentPsd();
+  btnNewPsd.onclick = () => newPsdEditor();
+  btnRunPsd.onclick = () => runPsdScript(psdEditor.value);
+
+  psdModal.addEventListener("click", (event) => {
+    if(event.target === psdModal){
+      btnClosePsd.click();
+    }
+  });
+
   consoleIn.addEventListener("keydown", (e)=>{
     if(e.key==="Enter"){
       e.preventDefault();
@@ -1500,6 +1806,7 @@ canvas{
   // =========================
   // Kickoff
   // =========================
+  loadPsdLibrary();
   initPhantom();
   clearKspace();
   clearADC();
