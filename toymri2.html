@@ -818,6 +818,10 @@ canvas{
   // =========================
   // Acquisition & gridding
   // =========================
+  function kToBin(k){
+    return k / (2 * Math.PI);
+  }
+
   function acquireOne(){
     // One sample = sum PD*(Mx + i My)
     let re=0, im=0;
@@ -834,8 +838,8 @@ canvas{
     // Drop into nearest k-space bin (toy)
     // Map kx,ky in approximately [-N/2..N/2] bins.
     // You can drive gradients to move around.
-    const bx = Math.round(kx + (N/2));
-    const by = Math.round(ky + (N/2));
+    const bx = Math.round(kToBin(kx) + (N/2));
+    const by = Math.round(kToBin(ky) + (N/2));
     if(bx>=0 && bx<N && by>=0 && by<N){
       const idx = by*N+bx;
       const h = KHit[idx] + 1;
@@ -1174,9 +1178,9 @@ canvas{
     ctxKpos.restore();
 
     // point
-    const scale = (w-16)/N; // toy: 1 k unit ≈ 1 pixel in kspace bin
-    const px = cx + kx*scale;
-    const py = cy + ky*scale;
+    const scale = (w-16)/N; // toy: 1 bin ≈ 1 pixel in kspace grid
+    const px = cx + kToBin(kx)*scale;
+    const py = cy + kToBin(ky)*scale;
     ctxKpos.save();
     ctxKpos.fillStyle="rgba(74,163,255,0.95)";
     ctxKpos.beginPath(); ctxKpos.arc(px,py,5,0,Math.PI*2); ctxKpos.fill();
@@ -1324,8 +1328,8 @@ canvas{
     ctxK.putImageData(img,0,0);
 
     // draw kpos marker (nearest bin)
-    const bx = clampInt(Math.round(kx + (N/2)), 0, N-1);
-    const by = clampInt(Math.round(ky + (N/2)), 0, N-1);
+    const bx = clampInt(Math.round(kToBin(kx) + (N/2)), 0, N-1);
+    const by = clampInt(Math.round(kToBin(ky) + (N/2)), 0, N-1);
     ctxK.save();
     ctxK.strokeStyle="rgba(74,163,255,0.95)";
     ctxK.lineWidth=2;
