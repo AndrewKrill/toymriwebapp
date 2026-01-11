@@ -1498,7 +1498,7 @@ canvas{
 
   const COMMANDS = [
     "help","reset","run","stop","step","dt","b0","b1","grad","rf","delay","adc","adcphase",
-    "zerok","cleark","clearadc","recon"
+    "adcphaseinc","zerok","cleark","clearadc","recon"
   ];
 
   const PSD_DEFAULTS = [
@@ -1516,7 +1516,7 @@ canvas{
 		"",
 		"#apply RF pulse",
 		"grad 0 0",
-		"rf 1 1 0 8",
+		"rf 0.25 1 0 1",
 		"",
 		"#Navigate to corner of kspace",
 		"grad -2 -2",
@@ -1544,9 +1544,9 @@ canvas{
         "cleark",
         "clearadc",
         "zerok",
-        "rf 1 1 0 8",
+        "rf 0.25 1 0 1",
         "delay 8",
-        "rf 1 1 90 8",
+        "rf 0.25 1 90 1",
         "grad 0.5 0",
         "adc 64",
         "recon"
@@ -1565,7 +1565,7 @@ canvas{
 		"",
 		"#apply RF pulse",
 		"grad 0 0",
-		"rf 1 1 0 8",
+		"rf 0.25 1 0 1",
 		"",
 		"#Navigate to corner of kspace",
 		"grad -2 -2",
@@ -1813,6 +1813,7 @@ canvas{
         log("  delay <durSteps>      (free precession)");
         log("  adc <n> [phaseStep]   (acquire n samples, incrementing phase each time)");
         log("  adcphase <deg>        (set receiver phase)");
+        log("  adcphaseinc <deg>     (increment receiver phase)");
         log("  zerok | cleark | clearadc");
         log("  recon");
         log("PSD only:");
@@ -1888,6 +1889,11 @@ canvas{
       case "adcphase":
         if(args.length<1) return bad("usage: adcphase <deg>");
         setPhaseSlider("adcPhaseSlider", args[0]);
+        break;
+
+      case "adcphaseinc":
+        if(args.length<1) return bad("usage: adcphaseinc <deg>");
+        setPhaseSlider("adcPhaseSlider", ctl.adcPhaseDeg + args[0]);
         break;
 
       case "rf": {
