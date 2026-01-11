@@ -1498,7 +1498,7 @@ canvas{
 
   const COMMANDS = [
     "help","reset","run","stop","step","dt","b0","b1","grad","rf","delay","adc","adcphase",
-    "adcphaseinc","zerok","cleark","clearadc","recon"
+    "adcphaseinc","zerok","cleark","clearadc","recon","psd","call"
   ];
 
   const PSD_DEFAULTS = [
@@ -1712,75 +1712,278 @@ canvas{
     log("> deleted psd");
   }
 
+  let lastPsdContext = null;
+
   function runPsdScript(script){
-    const lines = script.split(/\r?\n/);
-    const expanded = expandPsdLines(lines);
-    if(!expanded) return;
+    const parsed = parsePsdScript(script);
+    if(!parsed) return;
     log("> run psd");
-    expanded.forEach(line => execLine(line));
+    const context = createPsdContext(parsed.functions);
+    const ok = executePsdStatements(parsed.statements, context, { executeCommands: true });
+    if(ok){
+      lastPsdContext = context;
+    }
   }
 
-  function expandPsdLines(lines){
+  function createPsdContext(functions){
+    return {
+      vars: new Map(),
+      functions,
+      lineCount: 0,
+      callDepth: 0,
+    };
+  }
+
+  function parsePsdScript(script){
+    const lines = script.split(/\r?\n/);
     const output = [];
     const stack = [];
-    const MAX_LINES = 200000;
+    const functions = {};
 
-    const pushLine = (line) => {
-      if(output.length >= MAX_LINES){
-        log("! PSD expansion exceeded max lines; aborting.");
-        return false;
-      }
-      output.push(line);
-      return true;
-    };
-
-    const pushToTarget = (line) => {
+    const pushToTarget = (entry) => {
       if(stack.length === 0){
-        return pushLine(line);
+        output.push(entry);
+      } else {
+        stack[stack.length - 1].lines.push(entry);
       }
-      stack[stack.length - 1].lines.push(line);
-      return true;
     };
 
     for(const rawLine of lines){
       const trimmed = rawLine.trim();
       if(!trimmed || trimmed.startsWith("#")) continue;
+
       const tokens = trimmed.split(/\s+/);
       const cmd = tokens[0].toLowerCase();
-      if(cmd === "repeat" || cmd === "loop"){
-        const count = Number(tokens[1]);
-        if(!Number.isFinite(count) || count <= 0){
-          log("! repeat expects a positive count.");
+
+      if(cmd === "def" || cmd === "function"){
+        const sig = trimmed.slice(tokens[0].length).trim();
+        const def = parseFunctionSignature(sig);
+        if(!def){
+          log("! function definition expects: def name(arg1,arg2) or def name arg1 arg2");
           return null;
         }
-        stack.push({ count: Math.floor(count), lines: [] });
+        stack.push({ type: "def", name: def.name, params: def.params, lines: [] });
         continue;
       }
+
+      if(cmd === "enddef" || cmd === "endfunc" || cmd === "endfunction"){
+        const block = stack.pop();
+        if(!block || block.type !== "def"){
+          log("! unexpected enddef without def.");
+          return null;
+        }
+        functions[block.name] = { params: block.params, lines: block.lines };
+        continue;
+      }
+
+      if(cmd === "repeat" || cmd === "loop"){
+        const countToken = tokens[1];
+        if(!countToken){
+          log("! repeat expects a count.");
+          return null;
+        }
+        stack.push({ type: "repeat", countToken, lines: [] });
+        continue;
+      }
+
       if(cmd === "end" || cmd === "endrepeat"){
-        if(stack.length === 0){
+        const block = stack.pop();
+        if(!block || block.type !== "repeat"){
           log("! unexpected end without repeat.");
           return null;
         }
-        const block = stack.pop();
-        for(let i = 0; i < block.count; i++){
-          for(const line of block.lines){
-            if(stack.length === 0){
-              if(!pushLine(line)) return null;
-            } else {
-              stack[stack.length - 1].lines.push(line);
-            }
-          }
-        }
+        pushToTarget({ type: "repeat", countToken: block.countToken, lines: block.lines });
         continue;
       }
-      if(!pushToTarget(trimmed)) return null;
+
+      pushToTarget(trimmed);
     }
 
     if(stack.length > 0){
-      log("! repeat block missing end.");
+      const last = stack[stack.length - 1];
+      log(last.type === "repeat" ? "! repeat block missing end." : "! def block missing enddef.");
       return null;
     }
-    return output;
+
+    return { statements: output, functions };
+  }
+
+  function parseFunctionSignature(raw){
+    if(!raw) return null;
+    const parenMatch = raw.match(/^([a-zA-Z_]\w*)\s*\((.*)\)\s*$/);
+    if(parenMatch){
+      const [, name, argList] = parenMatch;
+      const params = argList.split(",").map(a => a.trim()).filter(Boolean);
+      return { name, params };
+    }
+    const tokens = raw.split(/\s+/);
+    const name = tokens[0];
+    if(!name || !/^[a-zA-Z_]\w*$/.test(name)) return null;
+    return { name, params: tokens.slice(1) };
+  }
+
+  function executePsdStatements(statements, context, options){
+    const MAX_LINES = 200000;
+    for(const entry of statements){
+      if(context.lineCount >= MAX_LINES){
+        log("! PSD expansion exceeded max lines; aborting.");
+        return false;
+      }
+      if(typeof entry === "string"){
+        if(!executePsdLine(entry, context, options)) return false;
+        context.lineCount += 1;
+      } else if(entry.type === "repeat"){
+        const count = resolveNumericToken(entry.countToken, context);
+        if(!Number.isFinite(count) || count <= 0){
+          log("! repeat expects a positive count.");
+          return false;
+        }
+        const repeatCount = Math.floor(count);
+        for(let i = 0; i < repeatCount; i++){
+          if(!executePsdStatements(entry.lines, context, options)) return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  function executePsdLine(rawLine, context, options){
+    const trimmed = rawLine.trim();
+    if(!trimmed || trimmed.startsWith("#")) return true;
+    const tokens = trimmed.split(/\s+/);
+    const cmd = tokens[0].toLowerCase();
+
+    const setVar = (name, value) => {
+      if(!name) return log("! set expects a variable name.");
+      context.vars.set(name, value);
+    };
+
+    if(cmd === "set" || cmd === "let" || cmd === "var"){
+      const name = tokens[1];
+      const valueToken = tokens[2];
+      if(!name || !valueToken){
+        log("! set expects: set <name> <value>");
+        return false;
+      }
+      setVar(name, resolveToken(valueToken, context));
+      return true;
+    }
+
+    if(cmd === "inc" || cmd === "dec"){
+      const name = tokens[1];
+      if(!name){
+        log("! inc/dec expects: inc <name> [value]");
+        return false;
+      }
+      const delta = resolveNumericToken(tokens[2] ?? "1", context);
+      const current = resolveNumericToken(name, context);
+      if(!Number.isFinite(current) || !Number.isFinite(delta)){
+        log("! inc/dec expects numeric variables.");
+        return false;
+      }
+      setVar(name, cmd === "inc" ? current + delta : current - delta);
+      return true;
+    }
+
+    const callInfo = parseCallLine(trimmed);
+    if(callInfo){
+      return callPsdFunction(callInfo.name, callInfo.args, context, options);
+    }
+
+    if(!options.executeCommands) return true;
+    const substituted = substituteLineTokens(tokens, context).join(" ");
+    execLine(substituted);
+    return true;
+  }
+
+  function parseCallLine(line){
+    const tokens = line.split(/\s+/);
+    if(tokens[0].toLowerCase() === "call"){
+      const name = tokens[1];
+      if(!name) return null;
+      return { name, args: tokens.slice(2) };
+    }
+    const match = line.match(/^([a-zA-Z_]\w*)\s*\((.*)\)\s*$/);
+    if(match){
+      const [, name, argsRaw] = match;
+      const args = parseArgList(argsRaw);
+      return { name, args };
+    }
+    return null;
+  }
+
+  function parseArgList(raw){
+    const trimmed = raw.trim();
+    if(!trimmed) return [];
+    return trimmed
+      .split(",")
+      .flatMap(part => part.trim().split(/\s+/).filter(Boolean));
+  }
+
+  function callPsdFunction(name, argTokens, context, options){
+    const fn = context.functions[name];
+    if(!fn){
+      log(`! unknown function: ${name}`);
+      return false;
+    }
+    if(context.callDepth > 50){
+      log("! function call depth exceeded.");
+      return false;
+    }
+    const args = argTokens.map(token => resolveToken(token, context));
+    const prevValues = new Map();
+    fn.params.forEach((param, idx) => {
+      if(context.vars.has(param)){
+        prevValues.set(param, { has: true, value: context.vars.get(param) });
+      } else {
+        prevValues.set(param, { has: false, value: null });
+      }
+      context.vars.set(param, args[idx] ?? 0);
+    });
+    context.callDepth += 1;
+    const ok = executePsdStatements(fn.lines, context, options);
+    context.callDepth -= 1;
+    fn.params.forEach(param => {
+      const prev = prevValues.get(param);
+      if(prev?.has){
+        context.vars.set(param, prev.value);
+      } else {
+        context.vars.delete(param);
+      }
+    });
+    return ok;
+  }
+
+  function resolveToken(token, context){
+    if(token == null) return token;
+    const varMatch = token.match(/^\$\{(.+)\}$/);
+    if(varMatch){
+      const name = varMatch[1];
+      return context.vars.has(name) ? context.vars.get(name) : token;
+    }
+    if(token.startsWith("$")){
+      const name = token.slice(1);
+      return context.vars.has(name) ? context.vars.get(name) : token;
+    }
+    if(context.vars.has(token)){
+      return context.vars.get(token);
+    }
+    const num = Number(token);
+    return Number.isFinite(num) ? num : token;
+  }
+
+  function resolveNumericToken(token, context){
+    const value = resolveToken(token, context);
+    const num = Number(value);
+    return Number.isFinite(num) ? num : NaN;
+  }
+
+  function substituteLineTokens(tokens, context){
+    return tokens.map((token, idx) => {
+      if(idx === 0) return token;
+      const resolved = resolveToken(token, context);
+      return typeof resolved === "number" ? String(resolved) : String(resolved);
+    });
   }
 
   function execLine(line){
@@ -1816,8 +2019,15 @@ canvas{
         log("  adcphaseinc <deg>     (increment receiver phase)");
         log("  zerok | cleark | clearadc");
         log("  recon");
+        log("  psd <name>            (run PSD from library by name)");
+        log("  call <fn> [args]      (call PSD function from last run)");
+        log("  call <psd>.<fn> [args] (call function from named PSD)");
         log("PSD only:");
         log("  repeat <n> ... end     (loop a block in PSD scripts)");
+        log("  def name(args) ... enddef");
+        log("  set <var> <value>     (define/update variables)");
+        log("  inc|dec <var> [value] (increment/decrement variable)");
+        log("  call name(args)       (invoke function)");
         break;
 
       case "reset":
@@ -1930,6 +2140,40 @@ canvas{
 
       case "recon":
         reconstruct(); renderAll(); break;
+
+      case "psd": {
+        if(args.length < 1) return bad("usage: psd <name>");
+        const name = String(args[0]).toLowerCase();
+        const entry = allPsdEntries().find(item => item.name.toLowerCase() === name || item.id.toLowerCase() === name);
+        if(!entry) return bad(`psd not found: ${args[0]}`);
+        runPsdScript(entry.script);
+        break;
+      }
+
+      case "call": {
+        if(args.length < 1) return bad("usage: call <function> [args]");
+        const target = String(args[0]);
+        const callArgs = args.slice(1).map(arg => String(arg));
+        if(target.includes("::") || target.includes(".")){
+          const sep = target.includes("::") ? "::" : ".";
+          const [psdName, fnName] = target.split(sep);
+          if(!psdName || !fnName) return bad("usage: call <psd>.<function> [args]");
+          const entry = allPsdEntries().find(item => item.name.toLowerCase() === psdName.toLowerCase() || item.id.toLowerCase() === psdName.toLowerCase());
+          if(!entry) return bad(`psd not found: ${psdName}`);
+          const parsed = parsePsdScript(entry.script);
+          if(!parsed) return;
+          const context = createPsdContext(parsed.functions);
+          executePsdStatements(parsed.statements, context, { executeCommands: false });
+          callPsdFunction(fnName, callArgs, context, { executeCommands: true });
+          lastPsdContext = context;
+          break;
+        }
+        if(!lastPsdContext){
+          return bad("no PSD context loaded; run a PSD first or use call <psd>.<function>.");
+        }
+        callPsdFunction(target, callArgs, lastPsdContext, { executeCommands: true });
+        break;
+      }
 
       default:
         bad(`unknown command: ${cmd} (try: help)`);
