@@ -1186,8 +1186,8 @@ canvas{
     ctxKpos.beginPath(); ctxKpos.arc(px,py,5,0,Math.PI*2); ctxKpos.fill();
     ctxKpos.restore();
 
-    $("kxTxt").textContent = kx.toFixed(2);
-    $("kyTxt").textContent = ky.toFixed(2);
+    $("kxTxt").textContent = kToBin(kx).toFixed(2);
+    $("kyTxt").textContent = kToBin(ky).toFixed(2);
   }
 
   function drawADC(){
