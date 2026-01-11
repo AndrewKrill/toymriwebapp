@@ -886,10 +886,10 @@ canvas{
     // b1: rotate by -b1f*t (remove RF phase evolution)
     if(ctl.frame==="lab") return {x:mx, y:my};
     if(ctl.frame==="b0"){
-      return rotateXY(mx,my, ctl.b0*ctl.t);
+      return rotateXY(mx,my, ctl.b0*ctl.t*GAMMA);
     }
     if(ctl.frame==="b1"){
-      return rotateXY(mx,my, ctl.b1f*ctl.t);
+      return rotateXY(mx,my, ctl.b1f*ctl.t*GAMMA);
     }
     return {x:mx,y:my};
   }
