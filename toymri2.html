@@ -743,8 +743,8 @@ canvas{
       ctl.t += dt;
 
       // Update k-space position (toy)
-      kx += ctl.gx * dt;
-      ky += ctl.gy * dt;
+      kx += ctl.gx * dt * (2 * Math.PI);
+      ky += ctl.gy * dt * (2 * Math.PI);
 
       const b0 = ctl.b0;
       const b1m = ctl.b1m;
@@ -760,11 +760,11 @@ canvas{
       // Toy relaxation toward equilibrium (0,0,PD)
       const R = ctl.relax;
 
-      // Spatial coords centered [-0.5..0.5]
+      // Spatial coords centered on the FFT grid (pixel centers straddle 0 for even N)
       for(let y=0;y<N;y++){
-        const yy = (y - (N-1)/2) / N;
+        const yy = (y - (N/2)) / N;
         for(let x=0;x<N;x++){
-          const xx = (x - (N-1)/2) / N;
+          const xx = (x - (N/2)) / N;
           const i = y*N+x;
           const pd = PD[i];
           if(pd<=0){
@@ -774,7 +774,7 @@ canvas{
 
           // Position-dependent frequency offset from gradients
           // (toy: treat as additional Bz)
-          const bz = b0 + (ctl.gx * xx + ctl.gy * yy);
+          const bz = b0 + (ctl.gx * xx + ctl.gy * yy) * (2 * Math.PI);
 
           // Effective B field
           const Bx = b1x;
@@ -819,6 +819,7 @@ canvas{
   // Acquisition & gridding
   // =========================
   function kToBin(k){
+    // Convert radians to k-space bins (cycles per FOV).
     return k / (2 * Math.PI);
   }
 
@@ -1186,8 +1187,8 @@ canvas{
     ctxKpos.beginPath(); ctxKpos.arc(px,py,5,0,Math.PI*2); ctxKpos.fill();
     ctxKpos.restore();
 
-    $("kxTxt").textContent = kx.toFixed(2);
-    $("kyTxt").textContent = ky.toFixed(2);
+    $("kxTxt").textContent = kToBin(kx).toFixed(2);
+    $("kyTxt").textContent = kToBin(ky).toFixed(2);
   }
 
   function drawADC(){
