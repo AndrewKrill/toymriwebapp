@@ -621,8 +621,9 @@ canvas{
       for(let x=0;x<N;x++){
         const dx=x-cx, dy=y-cy;
         const r=Math.sqrt(dx*dx+dy*dy);
-        if(r<18) PD[y*N+x]=0.9;
+        if(r<16) PD[y*N+x]=0.9;
         if(r>6 && r<10 && x>cx) PD[y*N+x]=0.2;
+        if(r<1) PD[y*N+x]=0;
       }
     }
     resetMagnetization();
