@@ -774,7 +774,7 @@ canvas{
 
           // Position-dependent frequency offset from gradients
           // (toy: treat as additional Bz)
-          const bz = b0 + (ctl.gx * xx + ctl.gy * yy);
+          const bz = b0 + (ctl.gx * xx + ctl.gy * yy) * (2 * Math.PI);
 
           // Effective B field
           const Bx = b1x;
