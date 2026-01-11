@@ -298,7 +298,7 @@ canvas{
       </div>
       <div class="kv">
         <label>ADC phase (deg)</label><b id="adcPhaseVal">0</b>
-        <input id="adcPhaseSlider" type="range" min="-180" max="180" step="1" value="0" style="grid-column:1 / -1;">
+        <input id="adcPhaseSlider" type="range" min="-180" max="180" step="0.1" value="0" style="grid-column:1 / -1;">
       </div>
 
       <div class="row" style="margin-top:8px;">
@@ -583,12 +583,16 @@ canvas{
 
   const adcPhaseSlider = $("adcPhaseSlider");
   const adcPhaseVal = $("adcPhaseVal");
+  const formatPhase = (value) => {
+    if(!Number.isFinite(value)) return "0";
+    return value.toFixed(2).replace(/\.?0+$/, "");
+  };
   adcPhaseSlider.addEventListener("input", ()=> {
-    ctl.adcPhaseDeg = parseInt(adcPhaseSlider.value,10);
-    adcPhaseVal.textContent = String(ctl.adcPhaseDeg);
+    ctl.adcPhaseDeg = parseFloat(adcPhaseSlider.value);
+    adcPhaseVal.textContent = formatPhase(ctl.adcPhaseDeg);
   });
-  ctl.adcPhaseDeg = parseInt(adcPhaseSlider.value,10);
-  adcPhaseVal.textContent = String(ctl.adcPhaseDeg);
+  ctl.adcPhaseDeg = parseFloat(adcPhaseSlider.value);
+  adcPhaseVal.textContent = formatPhase(ctl.adcPhaseDeg);
 
   bindSlider("gxSlider","gxVal","gx", v=>v.toFixed(2));
   bindSlider("gySlider","gyVal","gy", v=>v.toFixed(2));
@@ -1801,7 +1805,7 @@ canvas{
         log("  grad <gx> <gy>");
         log("  rf <mag> <freq> <phaseDeg> <durSteps>   (apply B1 for durSteps, then B1 mag returns to 0)");
         log("  delay <durSteps>      (free precession)");
-        log("  adc <n>               (acquire n samples, stepping each time)");
+        log("  adc <n> [phaseStep]   (acquire n samples, incrementing phase each time)");
         log("  adcphase <deg>        (set receiver phase)");
         log("  zerok | cleark | clearadc");
         log("  recon");
@@ -1858,9 +1862,17 @@ canvas{
 
       case "adc": {
         const n = clampInt((args[0]??1)|0, 1, 200000);
+        let phaseStep = 0;
+        if(args.length > 1){
+          if(!Number.isFinite(args[1])) return bad("usage: adc <n> [phaseStep]");
+          phaseStep = args[1];
+        }
         for(let i=0;i<n;i++){
           // Acquire at current k, then advance (aligns first sample with current k-space position).
           acquireOne();
+          if(phaseStep !== 0){
+            setSlider("adcPhaseSlider", ctl.adcPhaseDeg + phaseStep, -180, 180);
+          }
           stepSim(1);
         }
         renderAll();
@@ -1869,7 +1881,7 @@ canvas{
 
       case "adcphase":
         if(args.length<1) return bad("usage: adcphase <deg>");
-        setSlider("adcPhaseSlider", args[0], -180, 180, true);
+        setSlider("adcPhaseSlider", args[0], -180, 180);
         break;
 
       case "rf": {
