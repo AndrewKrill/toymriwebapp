@@ -460,7 +460,7 @@ canvas{
   const N = 64;
 
   // Toy gamma: set to 1 rad/(toy·time) so sliders feel usable.
-  const GAMMA = 1.0;
+  const GAMMA = 2 * Math.PI;
 
   // Storage
   const PD = new Float32Array(N*N);       // proton density [0..1]
@@ -744,8 +744,8 @@ canvas{
       ctl.t += dt;
 
       // Update k-space position (toy)
-      kx += ctl.gx * dt * (2 * Math.PI);
-      ky += ctl.gy * dt * (2 * Math.PI);
+      kx += ctl.gx * dt * (1);
+      ky += ctl.gy * dt * (1);
 
       const b0 = ctl.b0;
       const b1m = ctl.b1m;
@@ -775,7 +775,7 @@ canvas{
 
           // Position-dependent frequency offset from gradients
           // (toy: treat as additional Bz)
-          const bz = b0 + (ctl.gx * xx + ctl.gy * yy) * (2 * Math.PI);
+          const bz = b0 + (ctl.gx * xx + ctl.gy * yy) * (1);
 
           // Effective B field
           const Bx = b1x;
@@ -821,7 +821,7 @@ canvas{
   // =========================
   function kToBin(k){
     // Convert radians to k-space bins (cycles per FOV).
-    return k / (2 * Math.PI);
+    return k / (1);
   }
 
   function acquireOne(){
