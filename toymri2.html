@@ -819,7 +819,8 @@ canvas{
   // Acquisition & gridding
   // =========================
   function kToBin(k){
-    return k / (2 * Math.PI);
+    // kx/ky are already tracked in k-space bin units.
+    return k;
   }
 
   function acquireOne(){
