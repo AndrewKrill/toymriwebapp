@@ -761,12 +761,11 @@ canvas{
       // Toy relaxation toward equilibrium (0,0,PD)
       const R = ctl.relax;
 
-      // Spatial coords centered on the phantom grid (pixel centers straddle 0 for even N)
-      const center = (N - 1) / 2;
+      // Spatial coords centered on the FFT grid (pixel centers straddle 0 for even N)
       for(let y=0;y<N;y++){
-        const yy = (y - center) / N;
+        const yy = (y - (N/2)) / N;
         for(let x=0;x<N;x++){
-          const xx = (x - center) / N;
+          const xx = (x - (N/2)) / N;
           const i = y*N+x;
           const pd = PD[i];
           if(pd<=0){
@@ -1809,9 +1808,9 @@ canvas{
       case "adc": {
         const n = clampInt((args[0]??1)|0, 1, 200000);
         for(let i=0;i<n;i++){
-          // step then acquire (common convention), but either is fine for toy.
-          stepSim(1);
+          // Acquire at current k, then advance (aligns first sample with current k-space position).
           acquireOne();
+          stepSim(1);
         }
         renderAll();
         break;
