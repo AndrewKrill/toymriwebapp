@@ -328,7 +328,7 @@ canvas{
             <option value="mxy">|Mxy|</option>
           </select>
         </div>
-        <canvas id="spin" width="512" height="512"></canvas>
+        <canvas id="spin" width="64" height="64"></canvas>
         <div class="hint" style="margin-top:8px;">
           Vectors show transverse magnetization direction; phase view shows angle of Mx+iMy.
         </div>
@@ -339,7 +339,7 @@ canvas{
         <div class="three">
           <div class="panelSection">
             <h4>K-space Location</h4>
-            <canvas id="kpos" width="256" height="256"></canvas>
+            <canvas id="kpos" width="64" height="64"></canvas>
             <div class="row" style="margin-top:8px;">
               <span class="pill">k = (<span id="kxTxt">0.00</span>, <span id="kyTxt">0.00</span>)</span>
               <button class="btn secondary" id="btnZeroK">Zero k</button>
@@ -350,7 +350,7 @@ canvas{
           </div>
           <div class="panelSection">
             <h4>Acquired K-space (grid)</h4>
-            <canvas id="kspace" width="512" height="512"></canvas>
+            <canvas id="kspace" width="64" height="64"></canvas>
             <div class="row" style="margin-top:8px;">
               <button class="btn secondary" id="btnClearK">Clear K-space</button>
               <button class="btn" id="btnRecon">Reconstruct</button>
@@ -985,7 +985,7 @@ canvas{
     for(let y=0;y<N;y++){
       const srcY = (y + half) % N;
       for(let x=0;x<N;x++){
-        const srcX = (x + half) % N;
+        const srcX = x;
         const dstIdx = y*N + x;
         const srcIdx = srcY*N + srcX;
         outRe[dstIdx] = re[srcIdx];
