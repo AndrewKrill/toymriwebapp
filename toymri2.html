@@ -748,7 +748,6 @@ canvas{
   function stepSim(steps=1){
     for(let s=0;s<steps;s++){
       const dt = ctl.dt;
-      ctl.t += dt;
 
       // Update k-space position (toy)
       kx += ctl.gx * dt * (1);
@@ -759,11 +758,9 @@ canvas{
       const b1f = ctl.b1f;
       const ph = ctl.b1pDeg * Math.PI/180;
 
-      // B1 in lab: B1x = b1m*cos(b1f*t + ph), B1y = b1m*sin(...)
-      // (toy rotating field)
-      const ang = b1f * ctl.t + ph;
-      const b1x = b1m * Math.cos(ang);
-      const b1y = b1m * Math.sin(ang);
+      // Apply RF in the rotating frame (RF is static here, phase set by b1p).
+      const b1x = b1m * Math.cos(ph);
+      const b1y = b1m * Math.sin(ph);
 
       // Toy relaxation toward equilibrium (0,0,PD)
       const R = ctl.relax;
@@ -782,7 +779,7 @@ canvas{
 
           // Position-dependent frequency offset from gradients
           // (toy: treat as additional Bz)
-          const bz = b0 + (ctl.gx * xx + ctl.gy * yy) * (1);
+          const bz = b0 + (ctl.gx * xx + ctl.gy * yy) * (1) - b1f;
 
           // Effective B field
           const Bx = b1x;
@@ -820,6 +817,8 @@ canvas{
           Mz[i] = mz;
         }
       }
+
+      ctl.t += dt;
     }
   }
 
@@ -832,7 +831,7 @@ canvas{
   }
 
   function acquireOne(){
-    // One sample = sum PD*(Mx + i My)
+    // One sample = sum PD*(Mx + i My), then demod by RF phase.
     let re=0, im=0;
     for(let i=0;i<N*N;i++){
       const pd=PD[i];
@@ -840,6 +839,12 @@ canvas{
       re += pd * Mx[i];
       im += pd * My[i];
     }
+
+    const rfPhase = (ctl.b1f * ctl.t * GAMMA) + (ctl.b1pDeg * Math.PI/180);
+    const lab = rotateXY(re, im, -rfPhase);
+    const demod = rotateXY(lab.x, lab.y, rfPhase);
+    re = demod.x;
+    im = demod.y;
     adcRe.push(re);
     adcIm.push(im);
     $("adcCount").textContent = String(adcRe.length);
@@ -880,16 +885,18 @@ canvas{
   }
 
   function getFrameXY(mx,my){
-    // Convert transverse components into chosen frame
-    // lab: no change
-    // b0: rotate by -b0*t (remove B0 precession)
-    // b1: rotate by -b1f*t (remove RF phase evolution)
-    if(ctl.frame==="lab") return {x:mx, y:my};
+    // Transverse components are stored in the RF rotating frame.
+    // lab: rotate forward by RF phase
+    // b0: rotate by (RF - B0) phase
+    // b1: no change (already in RF frame)
+    const rfPhase = (ctl.b1f * ctl.t * GAMMA) + (ctl.b1pDeg * Math.PI/180);
+    if(ctl.frame==="lab") return rotateXY(mx,my, -rfPhase);
     if(ctl.frame==="b0"){
-      return rotateXY(mx,my, ctl.b0*ctl.t*GAMMA);
+      const b0Phase = ctl.b0 * ctl.t * GAMMA;
+      return rotateXY(mx,my, -(rfPhase - b0Phase));
     }
     if(ctl.frame==="b1"){
-      return rotateXY(mx,my, ctl.b1f*ctl.t*GAMMA);
+      return {x:mx,y:my};
     }
     return {x:mx,y:my};
   }
