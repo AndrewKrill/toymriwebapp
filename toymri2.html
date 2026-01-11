@@ -587,6 +587,12 @@ canvas{
     if(!Number.isFinite(value)) return "0";
     return value.toFixed(2).replace(/\.?0+$/, "");
   };
+  const wrapPhaseDeg = (value) => {
+    if(!Number.isFinite(value)) return 0;
+    const wrapped = ((value + 180) % 360 + 360) % 360 - 180;
+    if(wrapped === -180 && value > 0) return 180;
+    return wrapped;
+  };
   adcPhaseSlider.addEventListener("input", ()=> {
     ctl.adcPhaseDeg = parseFloat(adcPhaseSlider.value);
     adcPhaseVal.textContent = formatPhase(ctl.adcPhaseDeg);
@@ -1871,7 +1877,7 @@ canvas{
           // Acquire at current k, then advance (aligns first sample with current k-space position).
           acquireOne();
           if(phaseStep !== 0){
-            setSlider("adcPhaseSlider", ctl.adcPhaseDeg + phaseStep, -180, 180);
+            setPhaseSlider("adcPhaseSlider", ctl.adcPhaseDeg + phaseStep);
           }
           stepSim(1);
         }
@@ -1881,7 +1887,7 @@ canvas{
 
       case "adcphase":
         if(args.length<1) return bad("usage: adcphase <deg>");
-        setSlider("adcPhaseSlider", args[0], -180, 180);
+        setPhaseSlider("adcPhaseSlider", args[0]);
         break;
 
       case "rf": {
@@ -1928,6 +1934,13 @@ canvas{
     const el = $(id);
     const v = clamp(value, lo, hi);
     el.value = isInt ? String(Math.round(v)) : String(v);
+    el.dispatchEvent(new Event("input"));
+  }
+
+  function setPhaseSlider(id, value){
+    const el = $(id);
+    const v = wrapPhaseDeg(value);
+    el.value = String(v);
     el.dispatchEvent(new Event("input"));
   }
 
