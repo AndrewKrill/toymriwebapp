@@ -979,11 +979,11 @@ canvas{
       }
     }
 
-    // fftshift the reconstructed image so the object appears centered
+    // fftshift the reconstructed image so the object appears centered horizontally
     const outRe = new Float32Array(N*N);
     const outIm = new Float32Array(N*N);
     for(let y=0;y<N;y++){
-      const srcY = (y + half) % N;
+      const srcY = y;
       for(let x=0;x<N;x++){
         const srcX = (x + half) % N;
         const dstIdx = y*N + x;
