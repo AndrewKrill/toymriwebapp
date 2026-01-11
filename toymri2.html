@@ -888,6 +888,7 @@ canvas{
       KIm[idx] = (KIm[idx]*(h-1) + im)/h;
       KHit[idx] = h;
     }
+    reconstruct();
     if(ctl.showFFT) computeAdcFFTMag();
   }
 
