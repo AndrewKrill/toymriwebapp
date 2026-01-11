@@ -284,6 +284,16 @@ canvas{
         </div>
       </div>
 
+      <div class="grid2" style="margin-top:6px;">
+        <div class="kv">
+          <label>RF frame</label>
+          <select id="rfFrame" title="Lab: oscillating B1x/B1y and full Bz. Rotating: static B1x/B1y and Bz = (B0 + gradients) - B1 freq.">
+            <option value="lab">Lab (oscillating B1)</option>
+            <option value="rot">Rotating (effective field)</option>
+          </select>
+        </div>
+      </div>
+
       <div class="sep"></div>
 
       <div class="grid2">
@@ -304,7 +314,8 @@ canvas{
       </div>
 
       <div class="hint" style="margin-top:8px;">
-        Toy Bloch units: precession uses ω = Bz + Gx·x + Gy·y, with B0 along +Z and B1 transverse.
+        Toy Bloch units: lab-frame RF uses B1x/B1y = b1m·cos(b1f·t+phase). Rotating-frame mode uses static B1x/B1y
+        with Bz,eff = (B0 + gradients) − b1f, which is handy near resonance for comparing effective-field tips.
       </div>
     </div>
   </div>
@@ -493,6 +504,7 @@ canvas{
     b1m:0.0,
     b1f:1.0,
     b1pDeg:0,
+    rfFrame:"lab",
     gx:0.0,
     gy:0.0,
     relax:0.02, // toy relaxation rate
@@ -575,6 +587,10 @@ canvas{
   $("tool").addEventListener("change", e => {
     ctl.tool = e.target.value;
     $("selInfo").textContent = sel ? `Selection: ${sel.x0},${sel.y0} → ${sel.x1},${sel.y1}` : "Selection: none";
+  });
+
+  $("rfFrame").addEventListener("change", e => {
+    ctl.rfFrame = e.target.value;
   });
 
   $("frame").addEventListener("change", e => ctl.frame = e.target.value);
@@ -751,10 +767,11 @@ canvas{
       const b1m = ctl.b1m;
       const b1f = ctl.b1f;
       const ph = ctl.b1pDeg * Math.PI/180;
+      const useRotFrame = ctl.rfFrame === "rot";
 
       // B1 in lab: B1x = b1m*cos(b1f*t + ph), B1y = b1m*sin(...)
       // (toy rotating field)
-      const ang = b1f * ctl.t + ph;
+      const ang = useRotFrame ? ph : (b1f * ctl.t + ph);
       const b1x = b1m * Math.cos(ang);
       const b1y = b1m * Math.sin(ang);
 
@@ -777,10 +794,10 @@ canvas{
           // (toy: treat as additional Bz)
           const bz = b0 + (ctl.gx * xx + ctl.gy * yy) * (1);
 
-          // Effective B field
+          // Effective B field (lab vs rotating frame toggle)
           const Bx = b1x;
           const By = b1y;
-          const Bz = bz;
+          const Bz = useRotFrame ? (bz - b1f) : bz;
 
           let mx = Mx[i], my = My[i], mz = Mz[i];
 
