@@ -332,6 +332,13 @@ canvas{
         <div class="hint" style="margin-top:8px;">
           Vectors show transverse magnetization direction; phase view shows angle of Mx+iMy.
         </div>
+        <div class="panelSection" style="margin-top:10px;">
+          <h4>Net Magnetization</h4>
+          <div class="kv"><label>net Mz</label><b id="netMz">0.00</b></div>
+          <div class="kv"><label>net |Mxy|</label><b id="netMxy">0.00</b></div>
+          <div class="kv"><label>net phase</label><b id="netPhase">0.0°</b></div>
+          <div class="kv"><label>net vector</label><b id="netVec">(0.00, 0.00, 0.00)</b></div>
+        </div>
       </div>
 
       <div class="panel">
@@ -1031,6 +1038,25 @@ canvas{
   // =========================
   // Rendering
   // =========================
+  function updateSpinNetStats(){
+    let sumMx = 0;
+    let sumMy = 0;
+    let sumMz = 0;
+    for(let i=0;i<N*N;i++){
+      sumMx += Mx[i];
+      sumMy += My[i];
+      sumMz += Mz[i];
+    }
+    const frame = getFrameXY(sumMx, sumMy);
+    const netMxy = Math.hypot(frame.x, frame.y);
+    const phase = netMxy < 1e-6 ? 0 : Math.atan2(frame.y, frame.x);
+    const phaseDeg = phase * 180 / Math.PI;
+    $("netMz").textContent = sumMz.toFixed(2);
+    $("netMxy").textContent = netMxy.toFixed(2);
+    $("netPhase").textContent = `${phaseDeg.toFixed(1)}°`;
+    $("netVec").textContent = `(${frame.x.toFixed(2)}, ${frame.y.toFixed(2)}, ${sumMz.toFixed(2)})`;
+  }
+
   function drawPhantom(){
     const img = ctxPh.createImageData(N,N);
     for(let i=0;i<N*N;i++){
@@ -1411,6 +1437,7 @@ canvas{
   function renderAll(){
     drawPhantom();
     drawSpin();
+    updateSpinNetStats();
     drawKpos();
     drawADC();
     drawKspace();
