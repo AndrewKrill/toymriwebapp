@@ -296,6 +296,10 @@ canvas{
           <input id="gySlider" type="range" min="-2" max="2" step="0.01" value="0" style="grid-column:1 / -1;">
         </div>
       </div>
+      <div class="kv">
+        <label>ADC phase (deg)</label><b id="adcPhaseVal">0</b>
+        <input id="adcPhaseSlider" type="range" min="-180" max="180" step="1" value="0" style="grid-column:1 / -1;">
+      </div>
 
       <div class="row" style="margin-top:8px;">
         <button class="btn good" id="btnADC">ADC Acquire (1 sample)</button>
@@ -417,7 +421,7 @@ canvas{
           <button class="btn secondary" id="btnPsdLibrary">PSD Library</button>
         </div>
         <div class="hint">
-          History: ↑/↓ • Autocomplete: Tab • Commands: <span style="font-family:var(--mono); color:var(--muted)">help, reset, run, stop, step, dt, b0, b1, grad, rf, delay, adc, zerok, cleark, clearadc, recon</span>
+          History: ↑/↓ • Autocomplete: Tab • Commands: <span style="font-family:var(--mono); color:var(--muted)">help, reset, run, stop, step, dt, b0, b1, grad, rf, delay, adc, adcphase, zerok, cleark, clearadc, recon</span>
         </div>
       </div>
     </div>
@@ -500,6 +504,7 @@ canvas{
     b1m:0.0,
     b1f:1.0,
     b1pDeg:0,
+    adcPhaseDeg:0,
     gx:0.0,
     gy:0.0,
     relax:0.02, // toy relaxation rate
@@ -575,6 +580,15 @@ canvas{
   });
   ctl.b1pDeg = parseInt(b1pSlider.value,10);
   b1pVal.textContent = String(ctl.b1pDeg);
+
+  const adcPhaseSlider = $("adcPhaseSlider");
+  const adcPhaseVal = $("adcPhaseVal");
+  adcPhaseSlider.addEventListener("input", ()=> {
+    ctl.adcPhaseDeg = parseInt(adcPhaseSlider.value,10);
+    adcPhaseVal.textContent = String(ctl.adcPhaseDeg);
+  });
+  ctl.adcPhaseDeg = parseInt(adcPhaseSlider.value,10);
+  adcPhaseVal.textContent = String(ctl.adcPhaseDeg);
 
   bindSlider("gxSlider","gxVal","gx", v=>v.toFixed(2));
   bindSlider("gySlider","gyVal","gy", v=>v.toFixed(2));
@@ -843,8 +857,10 @@ canvas{
     const rfPhase = (ctl.b1f * ctl.t * GAMMA) + (ctl.b1pDeg * Math.PI/180);
     const lab = rotateXY(re, im, -rfPhase);
     const demod = rotateXY(lab.x, lab.y, rfPhase);
-    re = demod.x;
-    im = demod.y;
+    const adcPhase = ctl.adcPhaseDeg * Math.PI/180;
+    const phased = rotateXY(demod.x, demod.y, adcPhase);
+    re = phased.x;
+    im = phased.y;
     adcRe.push(re);
     adcIm.push(im);
     $("adcCount").textContent = String(adcRe.length);
@@ -1471,7 +1487,7 @@ canvas{
   let histIdx = -1;
 
   const COMMANDS = [
-    "help","reset","run","stop","step","dt","b0","b1","grad","rf","delay","adc",
+    "help","reset","run","stop","step","dt","b0","b1","grad","rf","delay","adc","adcphase",
     "zerok","cleark","clearadc","recon"
   ];
 
@@ -1786,6 +1802,7 @@ canvas{
         log("  rf <mag> <freq> <phaseDeg> <durSteps>   (apply B1 for durSteps, then B1 mag returns to 0)");
         log("  delay <durSteps>      (free precession)");
         log("  adc <n>               (acquire n samples, stepping each time)");
+        log("  adcphase <deg>        (set receiver phase)");
         log("  zerok | cleark | clearadc");
         log("  recon");
         log("PSD only:");
@@ -1849,6 +1866,11 @@ canvas{
         renderAll();
         break;
       }
+
+      case "adcphase":
+        if(args.length<1) return bad("usage: adcphase <deg>");
+        setSlider("adcPhaseSlider", args[0], -180, 180, true);
+        break;
 
       case "rf": {
         if(args.length<4) return bad("usage: rf <mag> <freq> <phaseDeg> <durSteps>");
