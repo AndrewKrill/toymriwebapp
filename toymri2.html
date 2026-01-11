@@ -1327,6 +1327,17 @@ canvas{
     }
     ctxK.putImageData(img,0,0);
 
+    // background grid
+    ctxK.save();
+    ctxK.strokeStyle = "rgba(46,64,88,0.35)";
+    ctxK.lineWidth = 1;
+    for(let i=0;i<=N;i++){
+      const p=i*cell;
+      ctxK.beginPath(); ctxK.moveTo(p,0); ctxK.lineTo(p,h); ctxK.stroke();
+      ctxK.beginPath(); ctxK.moveTo(0,p); ctxK.lineTo(w,p); ctxK.stroke();
+    }
+    ctxK.restore();
+
     // draw kpos marker (nearest bin)
     const bx = clampInt(Math.round(kToBin(kx) + (N/2)), 0, N-1);
     const by = clampInt(Math.round(kToBin(ky) + (N/2)), 0, N-1);
