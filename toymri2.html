@@ -743,8 +743,8 @@ canvas{
       ctl.t += dt;
 
       // Update k-space position (toy)
-      kx += ctl.gx * dt;
-      ky += ctl.gy * dt;
+      kx += ctl.gx * dt * (2 * Math.PI);
+      ky += ctl.gy * dt * (2 * Math.PI);
 
       const b0 = ctl.b0;
       const b1m = ctl.b1m;
@@ -819,8 +819,8 @@ canvas{
   // Acquisition & gridding
   // =========================
   function kToBin(k){
-    // kx/ky are already tracked in k-space bin units.
-    return k;
+    // Convert radians to k-space bins (cycles per FOV).
+    return k / (2 * Math.PI);
   }
 
   function acquireOne(){
