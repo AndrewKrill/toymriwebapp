@@ -1176,6 +1176,53 @@ canvas{
     }
   }
 
+  function drawSpinGuides(cell){
+    const w = canvSpin.width;
+    const h = canvSpin.height;
+    const cx = w / 2;
+    const cy = h / 2;
+    const maxR = Math.min(cx, cy) - cell * 1.2;
+
+    ctxSpin.save();
+    ctxSpin.strokeStyle = "rgba(74,163,255,0.18)";
+    ctxSpin.lineWidth = 1;
+    ctxSpin.beginPath();
+    ctxSpin.moveTo(cx, 8);
+    ctxSpin.lineTo(cx, h - 8);
+    ctxSpin.stroke();
+    ctxSpin.beginPath();
+    ctxSpin.moveTo(8, cy);
+    ctxSpin.lineTo(w - 8, cy);
+    ctxSpin.stroke();
+
+    ctxSpin.strokeStyle = "rgba(46,64,88,0.5)";
+    [0.25, 0.5, 0.75, 1].forEach((frac) => {
+      ctxSpin.beginPath();
+      ctxSpin.arc(cx, cy, maxR * frac, 0, Math.PI * 2);
+      ctxSpin.stroke();
+    });
+    ctxSpin.restore();
+  }
+
+  function drawArrow(ctx, x0, y0, x1, y1, color, lineWidth = 1.2, head = 4){
+    const ang = Math.atan2(y1 - y0, x1 - x0);
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = lineWidth;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 - head * Math.cos(ang - 0.55), y1 - head * Math.sin(ang - 0.55));
+    ctx.lineTo(x1 - head * Math.cos(ang + 0.55), y1 - head * Math.sin(ang + 0.55));
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
   function drawSpin(){
     const w=canvSpin.width, h=canvSpin.height;
     ctxSpin.clearRect(0,0,w,h);
@@ -1194,12 +1241,23 @@ canvas{
 
     const mode = ctl.spinDisp;
     const cell = w/N;
+    drawSpinGuides(cell);
 
     if(mode==="vectors"){
       ctxSpin.save();
+      for(let y=0;y<N;y++){
+        for(let x=0;x<N;x++){
+          const i=y*N+x;
+          if(PD[i] <= 0) continue;
+          const shade = clamp01(PD[i]) * 0.12;
+          ctxSpin.fillStyle = `rgba(74,163,255,${shade.toFixed(3)})`;
+          ctxSpin.fillRect(x*cell, y*cell, cell, cell);
+        }
+      }
+      ctxSpin.restore();
+
+      ctxSpin.save();
       ctxSpin.lineWidth = 1;
-      ctxSpin.strokeStyle = "rgba(124,255,200,0.95)";
-      ctxSpin.fillStyle = "rgba(124,255,200,0.95)";
 
       for(let y=0;y<N;y++){
         for(let x=0;x<N;x++){
@@ -1215,23 +1273,34 @@ canvas{
           const ang = Math.atan2(my,mx);
           const x2 = cx + len*Math.cos(ang);
           const y2 = cy + len*Math.sin(ang);
-
-          ctxSpin.beginPath();
-          ctxSpin.moveTo(cx,cy);
-          ctxSpin.lineTo(x2,y2);
-          ctxSpin.stroke();
-
-          // arrow head
-          const ah=2.2;
-          ctxSpin.beginPath();
-          ctxSpin.moveTo(x2,y2);
-          ctxSpin.lineTo(x2 - ah*Math.cos(ang-0.6), y2 - ah*Math.sin(ang-0.6));
-          ctxSpin.lineTo(x2 - ah*Math.cos(ang+0.6), y2 - ah*Math.sin(ang+0.6));
-          ctxSpin.closePath();
-          ctxSpin.fill();
+          const hue = (ang + Math.PI) / (2*Math.PI);
+          const rgb = hsvToRgb(hue, 0.85, 0.95);
+          const color = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${(0.35 + 0.6*clamp01(mxy)).toFixed(2)})`;
+          drawArrow(ctxSpin, cx, cy, x2, y2, color, 1, 2.6);
         }
       }
       ctxSpin.restore();
+
+      let sumMx = 0;
+      let sumMy = 0;
+      let sumPD = 0;
+      for(let i=0;i<N*N;i++){
+        sumMx += Mx[i];
+        sumMy += My[i];
+        sumPD += PD[i];
+      }
+      if(sumPD > 1e-6){
+        const frame = getFrameXY(sumMx, sumMy);
+        const netMxy = Math.hypot(frame.x, frame.y);
+        const norm = clamp01(netMxy / sumPD);
+        const cx = w * 0.5;
+        const cy = h * 0.5;
+        const len = norm * (cell * 10);
+        const ang = Math.atan2(frame.y, frame.x);
+        const x2 = cx + len * Math.cos(ang);
+        const y2 = cy + len * Math.sin(ang);
+        drawArrow(ctxSpin, cx, cy, x2, y2, "rgba(255,204,102,0.95)", 2.2, 6);
+      }
       return;
     }
 
