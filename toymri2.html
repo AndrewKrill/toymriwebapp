@@ -632,8 +632,19 @@ canvas{
     $("selInfo").textContent = sel ? `Selection: ${sel.x0},${sel.y0} → ${sel.x1},${sel.y1}` : "Selection: none";
   });
 
-  $("frame").addEventListener("change", e => ctl.frame = e.target.value);
-  $("spinDisp").addEventListener("change", e => ctl.spinDisp = e.target.value);
+  const refreshSpinView = () => {
+    drawSpin();
+    updateSpinNetStats();
+  };
+
+  $("frame").addEventListener("change", e => {
+    ctl.frame = e.target.value;
+    refreshSpinView();
+  });
+  $("spinDisp").addEventListener("change", e => {
+    ctl.spinDisp = e.target.value;
+    refreshSpinView();
+  });
 
   $("kDisp").addEventListener("change", e => { ctl.kDisp = e.target.value; drawKspace(); });
   $("reconDisp").addEventListener("change", e => { ctl.reconDisp = e.target.value; drawRecon(); });
