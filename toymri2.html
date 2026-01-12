@@ -287,7 +287,7 @@ canvas{
 
       <div class="sep"></div>
 
-      <div class="grid2">
+      <div class="grid3">
         <div class="kv">
           <label>Gx (toy)</label><b id="gxVal">0.00</b>
           <input id="gxSlider" type="range" min="-2" max="2" step="0.01" value="0" style="grid-column:1 / -1;">
@@ -296,6 +296,13 @@ canvas{
           <label>Gy (toy)</label><b id="gyVal">0.00</b>
           <input id="gySlider" type="range" min="-2" max="2" step="0.01" value="0" style="grid-column:1 / -1;">
         </div>
+        <div class="kv">
+          <label>Gz (toy)</label><b id="gzVal">0.00</b>
+          <input id="gzSlider" type="range" min="-2" max="2" step="0.01" value="0" style="grid-column:1 / -1;">
+        </div>
+      </div>
+      <div class="row" style="margin-top:6px;">
+        <label><input type="checkbox" id="sliceToggle"> Slice-select mode</label>
       </div>
       <div class="kv">
         <label>ADC phase (deg)</label><b id="adcPhaseVal">0</b>
@@ -309,7 +316,7 @@ canvas{
       </div>
 
       <div class="hint" style="margin-top:8px;">
-        Toy Bloch units: precession uses ω = Bz + Gx·x + Gy·y, with B0 along +Z and B1 transverse.
+        Toy Bloch units: precession uses ω = Bz + Gx·x + Gy·y (+ Gz·z in slice-select), with B0 along +Z and B1 transverse.
       </div>
     </div>
   </div>
@@ -422,7 +429,7 @@ canvas{
           <button class="btn secondary" id="btnPsdLibrary">PSD Library</button>
         </div>
         <div class="hint">
-          History: ↑/↓ • Autocomplete: Tab • Commands: <span style="font-family:var(--mono); color:var(--muted)">help, reset, run, stop, step, dt, b0, b1, grad, rf, delay, adc, adcphase, zerok, cleark, clearadc, recon, anim</span>
+          History: ↑/↓ • Autocomplete: Tab • Commands: <span style="font-family:var(--mono); color:var(--muted)">help, reset, run, stop, step, dt, b0, b1, grad, rf, delay, adc, adcphase, slice, zerok, cleark, clearadc, recon, anim</span>
         </div>
       </div>
     </div>
@@ -431,7 +438,7 @@ canvas{
       <h3>Pulse Sequence Diagram</h3>
       <canvas id="psdPlot" width="900" height="260"></canvas>
       <div class="row" style="margin-top:8px;">
-        <span class="pill">RF • Gx • Gy • ADC</span>
+        <span class="pill">RF • Gx • Gy • Gz • ADC</span>
         <button class="btn secondary" id="btnClearPsdPlot">Clear Plot</button>
       </div>
       <div class="hint" style="margin-top:8px;">
@@ -511,7 +518,13 @@ canvas{
   let psdRF = [];
   let psdGx = [];
   let psdGy = [];
+  let psdGz = [];
   let psdADC = [];
+
+  // RF waveform timeline (per simulation step)
+  let b1WaveAmp = [];
+  let b1WavePhase = [];
+  let b1WaveFreq = [];
 
   // K-space position (toy)
   let kx = 0, ky = 0;
@@ -527,8 +540,10 @@ canvas{
     adcPhaseDeg:0,
     gx:0.0,
     gy:0.0,
+    gz:0.0,
     relax:0.02, // toy relaxation rate
     t:0.0,      // global time (toy)
+    stepCount:0,
     frame:"lab",
     spinDisp:"vectors",
     tool:"draw",
@@ -538,7 +553,8 @@ canvas{
     reconDisp:"mag",
     adcView:"reim",
     showFFT:false,
-    anim:false
+    anim:false,
+    sliceSelect:false
   };
   const ANIM_DELAY_MS = 150;
 
@@ -626,6 +642,13 @@ canvas{
 
   bindSlider("gxSlider","gxVal","gx", v=>v.toFixed(2));
   bindSlider("gySlider","gyVal","gy", v=>v.toFixed(2));
+  bindSlider("gzSlider","gzVal","gz", v=>v.toFixed(2));
+
+  const sliceToggle = $("sliceToggle");
+  sliceToggle.addEventListener("change", () => {
+    ctl.sliceSelect = sliceToggle.checked;
+  });
+  ctl.sliceSelect = sliceToggle.checked;
 
   $("tool").addEventListener("change", e => {
     ctl.tool = e.target.value;
@@ -678,7 +701,9 @@ canvas{
       Mx[i]=0; My[i]=0; Mz[i]=PD[i];
     }
     ctl.t = 0;
+    ctl.stepCount = 0;
     clearPsdTimeline();
+    clearRfTimeline();
   }
 
   // Start with a simple circle phantom
@@ -809,16 +834,18 @@ canvas{
   function stepSim(steps=1){
     for(let s=0;s<steps;s++){
       const dt = ctl.dt;
-      recordPsdSample();
+      const stepIndex = ctl.stepCount;
+      const b1Sample = getB1Sample(stepIndex);
+      recordPsdSample({stepIndex});
 
       // Update k-space position (toy)
       kx += ctl.gx * dt * (1);
       ky += ctl.gy * dt * (1);
 
       const b0 = ctl.b0;
-      const b1m = ctl.b1m;
-      const b1f = ctl.b1f;
-      const ph = ctl.b1pDeg * Math.PI/180;
+      const b1m = b1Sample.mag;
+      const b1f = b1Sample.freq;
+      const ph = b1Sample.phaseDeg * Math.PI/180;
 
       // Apply RF in the rotating frame (RF is static here, phase set by b1p).
       const b1x = b1m * Math.cos(ph);
@@ -830,6 +857,7 @@ canvas{
       // Spatial coords centered on the FFT grid (pixel centers straddle 0 for even N)
       for(let y=0;y<N;y++){
         const yy = (y - (N/2)) / N;
+        const zz = yy;
         for(let x=0;x<N;x++){
           const xx = (x - (N/2)) / N;
           const i = y*N+x;
@@ -841,7 +869,8 @@ canvas{
 
           // Position-dependent frequency offset from gradients
           // (toy: treat as additional Bz)
-          const bz = b0 + (ctl.gx * xx + ctl.gy * yy) * (1) - b1f;
+          const zOff = ctl.sliceSelect ? (ctl.gz * zz) * (1) : 0;
+          const bz = b0 + (ctl.gx * xx + ctl.gy * yy) * (1) + zOff - b1f;
 
           // Effective B field
           const Bx = b1x;
@@ -881,6 +910,7 @@ canvas{
       }
 
       ctl.t += dt;
+      ctl.stepCount += 1;
     }
   }
 
@@ -903,7 +933,8 @@ canvas{
       im += pd * My[i];
     }
 
-    const rfPhase = (ctl.b1f * ctl.t * GAMMA) + (ctl.b1pDeg * Math.PI/180);
+    const b1 = getB1Sample(ctl.stepCount);
+    const rfPhase = (b1.freq * ctl.t * GAMMA) + (b1.phaseDeg * Math.PI/180);
     const lab = rotateXY(re, im, -rfPhase);
     const demod = rotateXY(lab.x, lab.y, rfPhase);
     const adcPhase = ctl.adcPhaseDeg * Math.PI/180;
@@ -943,14 +974,34 @@ canvas{
     psdRF = [];
     psdGx = [];
     psdGy = [];
+    psdGz = [];
     psdADC = [];
   }
 
-  function recordPsdSample({adc=false} = {}){
+  function clearRfTimeline(){
+    b1WaveAmp = [];
+    b1WavePhase = [];
+    b1WaveFreq = [];
+  }
+
+  function getB1Sample(stepIndex){
+    const amp = b1WaveAmp[stepIndex];
+    const phaseDeg = b1WavePhase[stepIndex];
+    const freq = b1WaveFreq[stepIndex];
+    return {
+      mag: Number.isFinite(amp) ? amp : ctl.b1m,
+      phaseDeg: Number.isFinite(phaseDeg) ? phaseDeg : ctl.b1pDeg,
+      freq: Number.isFinite(freq) ? freq : ctl.b1f
+    };
+  }
+
+  function recordPsdSample({adc=false, stepIndex=ctl.stepCount} = {}){
+    const b1 = getB1Sample(stepIndex);
     psdT.push(ctl.t);
-    psdRF.push(ctl.b1m);
+    psdRF.push(b1.mag);
     psdGx.push(ctl.gx);
     psdGy.push(ctl.gy);
+    psdGz.push(ctl.gz);
     psdADC.push(adc ? 1 : 0);
     const maxLen = 200000;
     if(psdT.length > maxLen){
@@ -958,7 +1009,54 @@ canvas{
       psdRF.shift();
       psdGx.shift();
       psdGy.shift();
+      psdGz.shift();
       psdADC.shift();
+    }
+  }
+
+  function buildRfEnvelope(steps, shape, param){
+    const env = new Float32Array(steps);
+    if(steps <= 0) return env;
+    const normShape = String(shape || "rect").toLowerCase();
+    if(normShape === "sinc"){
+      const lobes = Number.isFinite(param) ? Math.max(1, Math.abs(param)) : 3;
+      const half = steps > 1 ? (steps - 1) / 2 : 1;
+      for(let i=0;i<steps;i++){
+        const x = (i - half) / half;
+        const t = x * lobes * Math.PI;
+        const sinc = Math.abs(t) < 1e-6 ? 1 : Math.sin(t) / t;
+        const window = 0.54 + 0.46 * Math.cos(Math.PI * x);
+        env[i] = sinc * window;
+      }
+    } else if(normShape === "gauss" || normShape === "gaussian"){
+      const sigma = Number.isFinite(param) ? Math.max(0.05, Math.abs(param)) : 0.35;
+      const half = steps > 1 ? (steps - 1) / 2 : 1;
+      for(let i=0;i<steps;i++){
+        const x = (i - half) / half;
+        const t = x / sigma;
+        env[i] = Math.exp(-0.5 * t * t);
+      }
+    } else {
+      env.fill(1);
+    }
+    let maxAbs = 0;
+    for(let i=0;i<steps;i++){
+      maxAbs = Math.max(maxAbs, Math.abs(env[i]));
+    }
+    if(maxAbs > 0){
+      for(let i=0;i<steps;i++) env[i] /= maxAbs;
+    }
+    return env;
+  }
+
+  function scheduleRfPulse({mag, freq, phaseDeg, durSteps, shape="rect", shapeParam}){
+    const env = buildRfEnvelope(durSteps, shape, shapeParam);
+    const start = ctl.stepCount;
+    for(let i=0;i<durSteps;i++){
+      const idx = start + i;
+      b1WaveAmp[idx] = mag * env[i];
+      b1WavePhase[idx] = phaseDeg;
+      b1WaveFreq[idx] = freq;
     }
   }
 
@@ -979,7 +1077,8 @@ canvas{
     // lab: rotate forward by RF phase
     // b0: rotate by (RF - B0) phase
     // b1: no change (already in RF frame)
-    const rfPhase = (ctl.b1f * ctl.t * GAMMA) + (ctl.b1pDeg * Math.PI/180);
+    const b1 = getB1Sample(ctl.stepCount);
+    const rfPhase = (b1.freq * ctl.t * GAMMA) + (b1.phaseDeg * Math.PI/180);
     if(ctl.frame==="lab") return rotateXY(mx,my, -rfPhase);
     if(ctl.frame==="b0"){
       const b0Phase = ctl.b0 * ctl.t * GAMMA;
@@ -1481,12 +1580,13 @@ canvas{
     ctxPsd.restore();
 
     const total = psdT.length;
-    const laneCount = 4;
+    const laneCount = 5;
     const laneH = plotH / laneCount;
     const lanes = [
       { label:"RF", color:"rgba(124,255,200,0.95)", data: psdRF, scale: 1 },
       { label:"Gx", color:"rgba(74,163,255,0.95)", data: psdGx, scale: 1 },
       { label:"Gy", color:"rgba(255,204,102,0.95)", data: psdGy, scale: 1 },
+      { label:"Gz", color:"rgba(163,124,255,0.95)", data: psdGz, scale: 1 },
       { label:"ADC", color:"rgba(255,107,107,0.95)", data: psdADC, scale: 1, digital: true }
     ];
 
@@ -1516,6 +1616,7 @@ canvas{
     lanes[0].scale = getMaxAbs(psdRF);
     lanes[1].scale = getMaxAbs(psdGx);
     lanes[2].scale = getMaxAbs(psdGy);
+    lanes[3].scale = getMaxAbs(psdGz);
 
     const indexToX = (idx) => {
       if(viewCount <= 1) return left;
@@ -1744,7 +1845,7 @@ canvas{
 
   const COMMANDS = [
     "help","reset","run","stop","step","dt","b0","b1","grad","rf","delay","adc","adcphase",
-    "adcphaseinc","zerok","cleark","clearadc","recon","anim","animstart","animstop"
+    "adcphaseinc","slice","zerok","cleark","clearadc","recon","anim","animstart","animstop"
   ];
 
   const PSD_DEFAULTS = [
@@ -2061,12 +2162,14 @@ canvas{
         log("  dt <value>");
         log("  b0 <value>");
         log("  b1 <mag> <freq> <phaseDeg>");
-        log("  grad <gx> <gy>");
-        log("  rf <mag> <freq> <phaseDeg> <durSteps>   (apply B1 for durSteps, then B1 mag returns to 0)");
+        log("  grad <gx> <gy> [gz]");
+        log("  rf <mag> <freq> <phaseDeg> <durSteps> [shape] [param]");
+        log("       shapes: rect (default), sinc [lobes], gaussian [sigma]");
         log("  delay <durSteps>      (free precession)");
         log("  adc <n> [phaseStep]   (acquire n samples, incrementing phase each time)");
         log("  adcphase <deg>        (set receiver phase)");
         log("  adcphaseinc <deg>     (increment receiver phase)");
+        log("  slice on|off          (toggle slice-select mode)");
         log("  zerok | cleark | clearadc");
         log("  recon");
         log("  anim on|off           (toggle animation mode)");
@@ -2131,10 +2234,27 @@ canvas{
         break;
 
       case "grad":
-        if(args.length<2) return bad("usage: grad <gx> <gy>");
+        if(args.length<2) return bad("usage: grad <gx> <gy> [gz]");
         setSlider("gxSlider", args[0], -2, 2);
         setSlider("gySlider", args[1], -2, 2);
+        if(args.length > 2){
+          setSlider("gzSlider", args[2], -2, 2);
+        }
         break;
+
+      case "slice": {
+        if(args.length < 1) return bad("usage: slice on|off");
+        const mode = String(args[0]).toLowerCase();
+        if(mode === "on" || mode === "start" || mode === "true"){
+          setSliceMode(true);
+        } else if(mode === "off" || mode === "stop" || mode === "false"){
+          setSliceMode(false);
+        } else {
+          return bad("usage: slice on|off");
+        }
+        log(`> slice-select ${ctl.sliceSelect ? "on" : "off"}`);
+        break;
+      }
 
       case "delay": {
         const n = clampInt((args[0]??1)|0, 1, 200000);
@@ -2172,24 +2292,24 @@ canvas{
         break;
 
       case "rf": {
-        if(args.length<4) return bad("usage: rf <mag> <freq> <phaseDeg> <durSteps>");
+        if(args.length<4) return bad("usage: rf <mag> <freq> <phaseDeg> <durSteps> [shape] [param]");
         const [mag,freq,phDeg,dur] = args;
         const durSteps = clampInt(dur|0, 1, 200000);
+        let shape = "rect";
+        let shapeParam;
+        if(args.length > 4 && typeof args[4] === "string"){
+          shape = args[4];
+          if(args.length > 5 && Number.isFinite(args[5])){
+            shapeParam = args[5];
+          }
+        }
 
-        // Save previous settings
-        const prevM = ctl.b1m, prevF = ctl.b1f, prevP = ctl.b1pDeg;
-
-        setSlider("b1mSlider", mag, 0, 2);
         setSlider("b1fSlider", freq, 0, 5);
         setSlider("b1pSlider", phDeg, -180, 180, true);
-
-        // apply for duration
-        stepSim(durSteps);
-
-        // turn off B1 mag
         setSlider("b1mSlider", 0, 0, 2);
 
-        // restore freq/phase if you want to keep them; here we keep freq/phase as-is
+        scheduleRfPulse({mag, freq, phaseDeg: phDeg, durSteps, shape, shapeParam});
+        stepSim(durSteps);
         renderAll();
         break;
       }
@@ -2223,6 +2343,11 @@ canvas{
     const v = wrapPhaseDeg(value);
     el.value = String(v);
     el.dispatchEvent(new Event("input"));
+  }
+
+  function setSliceMode(enabled){
+    ctl.sliceSelect = Boolean(enabled);
+    sliceToggle.checked = ctl.sliceSelect;
   }
 
   btnExec.onclick = () => {
