@@ -222,7 +222,7 @@ canvas{
 <main>
   <div class="leftcol">
     <div class="panel">
-      <h3>Phantom Editor (Proton Density)</h3>
+      <h3>Phantom Editor (PD / T1 / T2)</h3>
       <canvas id="phantom" width="64" height="64" title="Left click draw, right click erase."></canvas>
       <div class="row" style="margin-top:8px;">
         <label>Tool</label>
@@ -233,8 +233,16 @@ canvas{
         <span class="pill" id="selInfo">Selection: none</span>
       </div>
       <div class="kv" style="margin-top:6px;">
-        <label>Property (PD)</label><b id="pdVal">0.80</b>
-        <input id="pdSlider" type="range" min="0" max="1" step="0.01" value="0.8" style="grid-column:1 / -1;">
+        <label>Property</label>
+        <select id="propSelect">
+          <option value="pd">PD</option>
+          <option value="t1">T1</option>
+          <option value="t2">T2</option>
+        </select>
+      </div>
+      <div class="kv">
+        <label>Value</label><b id="propVal">0.80</b>
+        <input id="propSlider" type="range" min="0" max="1" step="0.01" value="0.8" style="grid-column:1 / -1;">
       </div>
       <div class="kv">
         <label>Pencil Size</label><b id="penVal">2</b>
@@ -245,7 +253,7 @@ canvas{
         <button class="btn secondary" id="btnClearPhantom">Clear PD</button>
       </div>
       <div class="hint" style="margin-top:8px;">
-        Selection tool: drag to select a rectangle, then move the PD slider to adjust that region.
+        Selection tool: drag to select a rectangle, then move the value slider to adjust that region.
       </div>
     </div>
 
@@ -280,9 +288,13 @@ canvas{
           <input id="b1pSlider" type="range" min="-180" max="180" step="1" value="0" style="grid-column:1 / -1;">
         </div>
         <div class="kv">
-          <label>Relax (T1/T2)</label><b id="relaxVal">0.02</b>
-          <input id="relaxSlider" type="range" min="0" max="0.2" step="0.001" value="0.02" style="grid-column:1 / -1;">
+          <label>T1 default (toy)</label><b id="t1Val">1.20</b>
+          <input id="t1Slider" type="range" min="0.2" max="5" step="0.05" value="1.2" style="grid-column:1 / -1;">
         </div>
+      </div>
+      <div class="kv">
+        <label>T2 default (toy)</label><b id="t2Val">0.60</b>
+        <input id="t2Slider" type="range" min="0.1" max="3" step="0.05" value="0.6" style="grid-column:1 / -1;">
       </div>
 
       <div class="sep"></div>
@@ -488,6 +500,8 @@ canvas{
 
   // Storage
   const PD = new Float32Array(N*N);       // proton density [0..1]
+  const T1Map = new Float32Array(N*N);    // toy T1 map
+  const T2Map = new Float32Array(N*N);    // toy T2 map
   const Mx = new Float32Array(N*N);
   const My = new Float32Array(N*N);
   const Mz = new Float32Array(N*N);
@@ -527,13 +541,17 @@ canvas{
     adcPhaseDeg:0,
     gx:0.0,
     gy:0.0,
-    relax:0.02, // toy relaxation rate
+    t1:1.2,
+    t2:0.6,
     t:0.0,      // global time (toy)
     frame:"lab",
     spinDisp:"vectors",
     tool:"draw",
     pen:2,
     pd:0.8,
+    paintT1:1.2,
+    paintT2:0.6,
+    paintProp:"pd",
     kDisp:"mag",
     reconDisp:"mag",
     adcView:"reim",
@@ -587,14 +605,67 @@ canvas{
     out.textContent = fmt(ctl[key]);
   }
 
-  bindSlider("pdSlider","pdVal","pd", v=>v.toFixed(2));
   bindSlider("penSlider","penVal","pen", v=>String(v|0));
 
   bindSlider("b0Slider","b0Val","b0", v=>v.toFixed(2));
   bindSlider("dtSlider","dtVal","dt", v=>v.toFixed(2));
   bindSlider("b1mSlider","b1mVal","b1m", v=>v.toFixed(2));
   bindSlider("b1fSlider","b1fVal","b1f", v=>v.toFixed(2));
-  bindSlider("relaxSlider","relaxVal","relax", v=>v.toFixed(3));
+  bindSlider("t1Slider","t1Val","t1", v=>v.toFixed(2));
+  bindSlider("t2Slider","t2Val","t2", v=>v.toFixed(2));
+
+  const propSelect = $("propSelect");
+  const propSlider = $("propSlider");
+  const propVal = $("propVal");
+  const PROP_META = {
+    pd: {min:0, max:1, step:0.01, fmt:(v)=>v.toFixed(2)},
+    t1: {min:0.2, max:5, step:0.05, fmt:(v)=>v.toFixed(2)},
+    t2: {min:0.1, max:3, step:0.05, fmt:(v)=>v.toFixed(2)}
+  };
+
+  function getPropValue(prop){
+    if(prop === "pd") return ctl.pd;
+    if(prop === "t1") return ctl.paintT1;
+    return ctl.paintT2;
+  }
+
+  function setPropValue(prop, value){
+    if(prop === "pd") ctl.pd = value;
+    else if(prop === "t1") ctl.paintT1 = value;
+    else ctl.paintT2 = value;
+  }
+
+  function updatePropControls(){
+    const meta = PROP_META[ctl.paintProp];
+    propSelect.value = ctl.paintProp;
+    propSlider.min = String(meta.min);
+    propSlider.max = String(meta.max);
+    propSlider.step = String(meta.step);
+    const current = getPropValue(ctl.paintProp);
+    propSlider.value = String(current);
+    propVal.textContent = meta.fmt(current);
+    const label = ctl.paintProp === "pd" ? "PD" : ctl.paintProp.toUpperCase();
+    $("btnFill").textContent = `Fill ${label}`;
+    $("btnClearPhantom").textContent = `Clear ${label}`;
+  }
+
+  propSelect.addEventListener("change", () => {
+    ctl.paintProp = propSelect.value;
+    updatePropControls();
+  });
+
+  propSlider.addEventListener("input", () => {
+    const value = parseFloat(propSlider.value);
+    setPropValue(ctl.paintProp, value);
+    const meta = PROP_META[ctl.paintProp];
+    propVal.textContent = meta.fmt(value);
+    if(ctl.tool === "select" && sel){
+      applyPropToSelection(ctl.paintProp, value);
+      renderAll();
+    }
+  });
+
+  updatePropControls();
 
   const b1pSlider = $("b1pSlider");
   const b1pVal = $("b1pVal");
@@ -665,8 +736,8 @@ canvas{
   $("btnClearK").onclick = () => { clearKspace(); renderAll(); log("> clear k-space"); };
   $("btnRecon").onclick = () => { reconstruct(); renderAll(); log("> recon"); };
   $("btnZeroK").onclick = () => { kx=0; ky=0; renderAll(); log("> zerok"); };
-  $("btnFill").onclick = () => { PD.fill(ctl.pd); renderAll(); log(`> fill pd ${ctl.pd.toFixed(2)}`); };
-  $("btnClearPhantom").onclick = () => { PD.fill(0); sel=null; renderAll(); log("> clear pd"); };
+  $("btnFill").onclick = () => { fillPhantomProp(); renderAll(); };
+  $("btnClearPhantom").onclick = () => { clearPhantomProp(); sel=null; renderAll(); };
   $("btnFFT").onclick = () => { ctl.showFFT = !ctl.showFFT; if(ctl.showFFT) computeAdcFFTMag(); drawADC(); };
 
   // =========================
@@ -681,9 +752,17 @@ canvas{
     clearPsdTimeline();
   }
 
+  function initRelaxMaps() {
+    for(let i=0;i<N*N;i++){
+      T1Map[i] = ctl.t1;
+      T2Map[i] = ctl.t2;
+    }
+  }
+
   // Start with a simple circle phantom
   function initPhantom() {
     PD.fill(0);
+    initRelaxMaps();
     const cx = (N-1)/2, cy=(N-1)/2;
     for(let y=0;y<N;y++){
       for(let x=0;x<N;x++){
@@ -709,6 +788,35 @@ canvas{
     return {px, py};
   }
 
+  function ensureRelaxMaps(i){
+    if(T1Map[i] <= 0) T1Map[i] = ctl.t1;
+    if(T2Map[i] <= 0) T2Map[i] = ctl.t2;
+  }
+
+  function applyPropAtIndex(i, prop, value){
+    if(prop === "pd"){
+      PD[i] = value;
+      if(PD[i] === 0){
+        Mx[i]=0; My[i]=0; Mz[i]=0;
+      } else {
+        ensureRelaxMaps(i);
+        if(Math.abs(Mz[i])<1e-6 && Math.abs(Mx[i])<1e-6 && Math.abs(My[i])<1e-6) Mz[i]=PD[i];
+      }
+      return;
+    }
+    if(prop === "t1"){
+      T1Map[i] = value;
+      return;
+    }
+    T2Map[i] = value;
+  }
+
+  function getEraseValue(prop){
+    if(prop === "pd") return 0;
+    if(prop === "t1") return ctl.t1;
+    return ctl.t2;
+  }
+
   function applyBrush(px, py, value) {
     const r = ctl.pen|0;
     const x0 = clampInt(px-r+1, 0, N-1);
@@ -720,26 +828,38 @@ canvas{
         const dx = x-px, dy=y-py;
         if(dx*dx+dy*dy <= (r-0.2)*(r-0.2)){
           const i = y*N+x;
-          PD[i] = value;
-          // Keep equilibrium consistent: if pixel is "created", put Mz near PD.
-          // Don't overwrite existing transverse components; just clamp Mz if empty->nonempty.
-          if(PD[i]===0){ Mx[i]=0; My[i]=0; Mz[i]=0; }
-          else { if(Math.abs(Mz[i])<1e-6 && Math.abs(Mx[i])<1e-6 && Math.abs(My[i])<1e-6) Mz[i]=PD[i]; }
+          applyPropAtIndex(i, ctl.paintProp, value);
         }
       }
     }
   }
 
-  function applyPDToSelection(value) {
+  function applyPropToSelection(prop, value) {
     if(!sel) return;
     for(let y=sel.y0; y<=sel.y1; y++){
       for(let x=sel.x0; x<=sel.x1; x++){
         const i=y*N+x;
-        PD[i]=value;
-        if(PD[i]===0){ Mx[i]=0; My[i]=0; Mz[i]=0; }
-        else { if(Math.abs(Mz[i])<1e-6 && Math.abs(Mx[i])<1e-6 && Math.abs(My[i])<1e-6) Mz[i]=PD[i]; }
+        applyPropAtIndex(i, prop, value);
       }
     }
+  }
+
+  function fillPhantomProp(){
+    const prop = ctl.paintProp;
+    const value = getPropValue(prop);
+    for(let i=0;i<N*N;i++){
+      applyPropAtIndex(i, prop, value);
+    }
+    log(`> fill ${prop} ${value.toFixed(2)}`);
+  }
+
+  function clearPhantomProp(){
+    const prop = ctl.paintProp;
+    const value = getEraseValue(prop);
+    for(let i=0;i<N*N;i++){
+      applyPropAtIndex(i, prop, value);
+    }
+    log(`> clear ${prop}`);
   }
 
   let mouseDown = false;
@@ -751,8 +871,8 @@ canvas{
     const {px,py} = canvasToPixel(e, canvPh);
 
     if(ctl.tool === "draw"){
-      if(e.button===2) applyBrush(px,py,0);
-      else applyBrush(px,py,ctl.pd);
+      if(e.button===2) applyBrush(px,py,getEraseValue(ctl.paintProp));
+      else applyBrush(px,py,getPropValue(ctl.paintProp));
       sel = null;
     } else { // select
       if(e.button===0){
@@ -770,8 +890,8 @@ canvas{
     const {px,py} = canvasToPixel(e, canvPh);
 
     if(ctl.tool==="draw"){
-      if(lastBtn===2) applyBrush(px,py,0);
-      else applyBrush(px,py,ctl.pd);
+      if(lastBtn===2) applyBrush(px,py,getEraseValue(ctl.paintProp));
+      else applyBrush(px,py,getPropValue(ctl.paintProp));
       renderAll();
     } else {
       if(isDragging && sel && dragStart){
@@ -789,14 +909,6 @@ canvas{
     mouseDown = false;
     isDragging = false;
     dragStart = null;
-  });
-
-  // When PD slider changes, apply to selection if present & tool=select
-  $("pdSlider").addEventListener("input", ()=>{
-    if(ctl.tool==="select" && sel){
-      applyPDToSelection(ctl.pd);
-      renderAll();
-    }
   });
 
   function updateSelInfo(){
@@ -823,9 +935,6 @@ canvas{
       // Apply RF in the rotating frame (RF is static here, phase set by b1p).
       const b1x = b1m * Math.cos(ph);
       const b1y = b1m * Math.sin(ph);
-
-      // Toy relaxation toward equilibrium (0,0,PD)
-      const R = ctl.relax;
 
       // Spatial coords centered on the FFT grid (pixel centers straddle 0 for even N)
       for(let y=0;y<N;y++){
@@ -868,11 +977,14 @@ canvas{
             mz = mz*cosT + cz*sinT + kz*dot*(1 - cosT);
           }
 
-          // Relaxation: drive Mz to pd, and damp Mx/My to 0
-          const expR = Math.exp(-R*dt);
-          mx *= expR;
-          my *= expR;
-          mz = mz*expR + pd*(1 - expR);
+          // Relaxation: T2 decay for Mx/My, T1 recovery toward PD for Mz
+          const t1 = Math.max(T1Map[i] > 0 ? T1Map[i] : ctl.t1, 1e-3);
+          const t2 = Math.max(T2Map[i] > 0 ? T2Map[i] : ctl.t2, 1e-3);
+          const expT1 = Math.exp(-dt / t1);
+          const expT2 = Math.exp(-dt / t2);
+          mx *= expT2;
+          my *= expT2;
+          mz = mz*expT1 + pd*(1 - expT1);
 
           Mx[i] = mx;
           My[i] = my;
