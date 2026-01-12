@@ -198,6 +198,7 @@ canvas{
 #recon{ width: min(var(--viz), 100%); height: auto; }
 #adc{ width: min(640px, 100%); height: auto; }
 #kpos{ width: min(var(--viz), 100%); height: auto; }
+#psdPlot{ width: min(900px, 100%); height: auto; }
 
 /* Phantom is already 64x64, but we can cap its display size */
 #phantom{ width: min(var(--viz), 100%); height: auto; }
@@ -426,6 +427,18 @@ canvas{
       </div>
     </div>
 
+    <div class="panel">
+      <h3>Pulse Sequence Diagram</h3>
+      <canvas id="psdPlot" width="900" height="260"></canvas>
+      <div class="row" style="margin-top:8px;">
+        <span class="pill">RF • Gx • Gy • ADC</span>
+        <button class="btn secondary" id="btnClearPsdPlot">Clear Plot</button>
+      </div>
+      <div class="hint" style="margin-top:8px;">
+        Visualizes the timeline of RF, gradients, and ADC events as you step or run a PSD.
+      </div>
+    </div>
+
   </div>
 </main>
 
@@ -493,6 +506,13 @@ canvas{
   let adcIm = [];
   let adcFFTMag = null; // optional display
 
+  // PSD timeline (per simulation step)
+  let psdT = [];
+  let psdRF = [];
+  let psdGx = [];
+  let psdGy = [];
+  let psdADC = [];
+
   // K-space position (toy)
   let kx = 0, ky = 0;
 
@@ -538,6 +558,7 @@ canvas{
   const canvADC = $("adc");
   const canvK = $("kspace");
   const canvRecon = $("recon");
+  const canvPsd = $("psdPlot");
 
   const ctxPh = canvPh.getContext("2d");
   const ctxSpin = canvSpin.getContext("2d");
@@ -545,9 +566,10 @@ canvas{
   const ctxADC = canvADC.getContext("2d");
   const ctxK = canvK.getContext("2d");
   const ctxRecon = canvRecon.getContext("2d");
+  const ctxPsd = canvPsd.getContext("2d");
 
   // Prevent context menu for right click drawing
-  [canvPh, canvSpin, canvK, canvRecon, canvKpos, canvADC].forEach(c => {
+  [canvPh, canvSpin, canvK, canvRecon, canvKpos, canvADC, canvPsd].forEach(c => {
     c.addEventListener("contextmenu", e => e.preventDefault());
   });
 
@@ -622,6 +644,7 @@ canvas{
   $("btnStep").onclick = () => { stepSim(); renderAll(); };
   $("btnResetM").onclick = () => { resetMagnetization(); renderAll(); log("> reset magnetization"); };
   $("btnClearADC").onclick = () => { clearADC(); renderAll(); log("> clear adc"); };
+  $("btnClearPsdPlot").onclick = () => { clearPsdTimeline(); renderAll(); log("> clear psd plot"); };
   $("btnADC").onclick = () => { acquireOne(); renderAll(); };
   $("btnADCn").onclick = () => {
     const n = clampInt(parseInt($("adcN").value,10) || 1, 1, 4096);
@@ -644,6 +667,7 @@ canvas{
       Mx[i]=0; My[i]=0; Mz[i]=PD[i];
     }
     ctl.t = 0;
+    clearPsdTimeline();
   }
 
   // Start with a simple circle phantom
@@ -774,6 +798,7 @@ canvas{
   function stepSim(steps=1){
     for(let s=0;s<steps;s++){
       const dt = ctl.dt;
+      recordPsdSample();
 
       // Update k-space position (toy)
       kx += ctl.gx * dt * (1);
@@ -858,6 +883,7 @@ canvas{
 
   function acquireOne(){
     // One sample = sum PD*(Mx + i My), then demod by RF phase.
+    recordPsdSample({adc:true});
     let re=0, im=0;
     for(let i=0;i<N*N;i++){
       const pd=PD[i];
@@ -899,6 +925,30 @@ canvas{
     adcIm = [];
     adcFFTMag = null;
     $("adcCount").textContent = "0";
+  }
+
+  function clearPsdTimeline(){
+    psdT = [];
+    psdRF = [];
+    psdGx = [];
+    psdGy = [];
+    psdADC = [];
+  }
+
+  function recordPsdSample({adc=false} = {}){
+    psdT.push(ctl.t);
+    psdRF.push(ctl.b1m);
+    psdGx.push(ctl.gx);
+    psdGy.push(ctl.gy);
+    psdADC.push(adc ? 1 : 0);
+    const maxLen = 200000;
+    if(psdT.length > maxLen){
+      psdT.shift();
+      psdRF.shift();
+      psdGx.shift();
+      psdGy.shift();
+      psdADC.shift();
+    }
   }
 
   function clearKspace(){
@@ -1333,6 +1383,118 @@ canvas{
     }
   }
 
+  function drawPsdPlot(){
+    const w=canvPsd.width, h=canvPsd.height;
+    ctxPsd.clearRect(0,0,w,h);
+
+    const left = 60;
+    const right = 12;
+    const top = 12;
+    const bottom = 14;
+    const plotW = w - left - right;
+    const plotH = h - top - bottom;
+
+    ctxPsd.save();
+    ctxPsd.strokeStyle="rgba(46,64,88,0.55)";
+    ctxPsd.lineWidth=1;
+    ctxPsd.strokeRect(left, top, plotW, plotH);
+    ctxPsd.restore();
+
+    const total = psdT.length;
+    const laneCount = 4;
+    const laneH = plotH / laneCount;
+    const lanes = [
+      { label:"RF", color:"rgba(124,255,200,0.95)", data: psdRF, scale: 1 },
+      { label:"Gx", color:"rgba(74,163,255,0.95)", data: psdGx, scale: 1 },
+      { label:"Gy", color:"rgba(255,204,102,0.95)", data: psdGy, scale: 1 },
+      { label:"ADC", color:"rgba(255,107,107,0.95)", data: psdADC, scale: 1, digital: true }
+    ];
+
+    if(total === 0){
+      ctxPsd.save();
+      ctxPsd.fillStyle="rgba(159,176,195,0.8)";
+      ctxPsd.font="12px var(--mono)";
+      ctxPsd.fillText("No sequence data yet.", left + 8, top + 18);
+      ctxPsd.restore();
+      return;
+    }
+
+    const windowCount = Math.min(total, 1200);
+    const start = Math.max(0, total - windowCount);
+    const viewCount = total - start;
+    const stride = Math.max(1, Math.ceil(viewCount / Math.max(1, plotW)));
+
+    const getMaxAbs = (arr) => {
+      let max = 0;
+      for(let i=start; i<total; i+=stride){
+        const v = Math.abs(arr[i]);
+        if(v > max) max = v;
+      }
+      return max || 1;
+    };
+
+    lanes[0].scale = getMaxAbs(psdRF);
+    lanes[1].scale = getMaxAbs(psdGx);
+    lanes[2].scale = getMaxAbs(psdGy);
+
+    const indexToX = (idx) => {
+      if(viewCount <= 1) return left;
+      return left + ((idx - start) / (viewCount - 1)) * plotW;
+    };
+
+    lanes.forEach((lane, laneIdx) => {
+      const baseY = top + laneH * (laneIdx + 0.5);
+
+      ctxPsd.save();
+      ctxPsd.strokeStyle = "rgba(46,64,88,0.35)";
+      ctxPsd.beginPath();
+      ctxPsd.moveTo(left, baseY);
+      ctxPsd.lineTo(left + plotW, baseY);
+      ctxPsd.stroke();
+      ctxPsd.restore();
+
+      ctxPsd.save();
+      ctxPsd.fillStyle="rgba(159,176,195,0.85)";
+      ctxPsd.font="12px var(--mono)";
+      ctxPsd.fillText(lane.label, 10, baseY + 4);
+      ctxPsd.restore();
+
+      ctxPsd.save();
+      ctxPsd.strokeStyle = lane.color;
+      ctxPsd.lineWidth = 2;
+
+      if(lane.digital){
+        for(let i=start; i<total; i+=stride){
+          if(lane.data[i] > 0.5){
+            const x = indexToX(i);
+            ctxPsd.beginPath();
+            ctxPsd.moveTo(x, baseY - laneH * 0.35);
+            ctxPsd.lineTo(x, baseY + laneH * 0.35);
+            ctxPsd.stroke();
+          }
+        }
+      } else {
+        ctxPsd.beginPath();
+        let first = true;
+        for(let i=start; i<total; i+=stride){
+          const x = indexToX(i);
+          const v = lane.data[i] / lane.scale;
+          const y = baseY - v * laneH * 0.35;
+          if(first){ ctxPsd.moveTo(x,y); first=false; }
+          else { ctxPsd.lineTo(x,y); }
+        }
+        ctxPsd.stroke();
+      }
+      ctxPsd.restore();
+    });
+
+    ctxPsd.save();
+    ctxPsd.fillStyle="rgba(159,176,195,0.8)";
+    ctxPsd.font="12px var(--mono)";
+    ctxPsd.fillText(`samples: ${total}`, left + plotW - 120, top + 14);
+    ctxPsd.restore();
+  }
+
   function drawKspace(){
     const w=canvK.width, h=canvK.height;
     const img = ctxK.createImageData(w,h);
@@ -1476,6 +1638,7 @@ canvas{
     updateSpinNetStats();
     drawKpos();
     drawADC();
+    drawPsdPlot();
     drawKspace();
     drawRecon();
   }
