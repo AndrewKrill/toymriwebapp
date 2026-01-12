@@ -343,6 +343,9 @@ canvas{
           <div class="kv"><label>net |Mxy|</label><b id="netMxy">0.00</b></div>
           <div class="kv"><label>net phase</label><b id="netPhase">0.0°</b></div>
           <div class="kv"><label>net vector</label><b id="netVec">(0.00, 0.00, 0.00)</b></div>
+          <div class="kv"><label>effective B (center)</label><b id="netBField">(0.00, 0.00, 0.00)</b></div>
+          <div class="kv"><label>RF phase</label><b id="netRfPhase">0.0°</b></div>
+          <div class="kv"><label>B0 phase</label><b id="netB0Phase">0.0°</b></div>
         </div>
       </div>
 
@@ -1141,6 +1144,14 @@ canvas{
     $("netMxy").textContent = netMxy.toFixed(2);
     $("netPhase").textContent = `${phaseDeg.toFixed(1)}°`;
     $("netVec").textContent = `(${frame.x.toFixed(2)}, ${frame.y.toFixed(2)}, ${sumMz.toFixed(2)})`;
+    const rfPhase = (ctl.b1f * ctl.t * GAMMA) + (ctl.b1pDeg * Math.PI/180);
+    const b0Phase = ctl.b0 * ctl.t * GAMMA;
+    const b1x = ctl.b1m * Math.cos(ctl.b1pDeg * Math.PI/180);
+    const b1y = ctl.b1m * Math.sin(ctl.b1pDeg * Math.PI/180);
+    const bzCenter = ctl.b0 - ctl.b1f;
+    $("netBField").textContent = `(${b1x.toFixed(2)}, ${b1y.toFixed(2)}, ${bzCenter.toFixed(2)})`;
+    $("netRfPhase").textContent = `${(rfPhase * 180 / Math.PI).toFixed(1)}°`;
+    $("netB0Phase").textContent = `${(b0Phase * 180 / Math.PI).toFixed(1)}°`;
   }
 
   function drawPhantom(){
