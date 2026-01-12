@@ -421,7 +421,7 @@ canvas{
           <button class="btn secondary" id="btnPsdLibrary">PSD Library</button>
         </div>
         <div class="hint">
-          History: ↑/↓ • Autocomplete: Tab • Commands: <span style="font-family:var(--mono); color:var(--muted)">help, reset, run, stop, step, dt, b0, b1, grad, rf, delay, adc, adcphase, zerok, cleark, clearadc, recon</span>
+          History: ↑/↓ • Autocomplete: Tab • Commands: <span style="font-family:var(--mono); color:var(--muted)">help, reset, run, stop, step, dt, b0, b1, grad, rf, delay, adc, adcphase, zerok, cleark, clearadc, recon, anim</span>
         </div>
       </div>
     </div>
@@ -517,8 +517,10 @@ canvas{
     kDisp:"mag",
     reconDisp:"mag",
     adcView:"reim",
-    showFFT:false
+    showFFT:false,
+    anim:false
   };
+  const ANIM_DELAY_MS = 150;
 
   // Selection rectangle in phantom
   let sel = null; // {x0,y0,x1,y1} inclusive bounds in pixel coords
@@ -1499,7 +1501,7 @@ canvas{
 
   const COMMANDS = [
     "help","reset","run","stop","step","dt","b0","b1","grad","rf","delay","adc","adcphase",
-    "adcphaseinc","zerok","cleark","clearadc","recon"
+    "adcphaseinc","zerok","cleark","clearadc","recon","anim","animstart","animstop"
   ];
 
   const PSD_DEFAULTS = [
@@ -1713,12 +1715,19 @@ canvas{
     log("> deleted psd");
   }
 
-  function runPsdScript(script){
+  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+  async function runPsdScript(script){
     const lines = script.split(/\r?\n/);
     const expanded = expandPsdLines(lines);
     if(!expanded) return;
     log("> run psd");
-    expanded.forEach(line => execLine(line));
+    for(const line of expanded){
+      execLine(line);
+      if(ctl.anim){
+        await sleep(ANIM_DELAY_MS);
+      }
+    }
   }
 
   function expandPsdLines(lines){
@@ -1817,6 +1826,7 @@ canvas{
         log("  adcphaseinc <deg>     (increment receiver phase)");
         log("  zerok | cleark | clearadc");
         log("  recon");
+        log("  anim on|off           (toggle animation mode)");
         log("PSD only:");
         log("  repeat <n> ... end     (loop a block in PSD scripts)");
         break;
@@ -1832,6 +1842,27 @@ canvas{
       case "stop":
         ctl.running=false; updateStatus();
         break;
+
+      case "animstart":
+      case "animstop":
+      case "anim": {
+        let next = ctl.anim;
+        if(cmd === "animstart") next = true;
+        if(cmd === "animstop") next = false;
+        if(cmd === "anim"){
+          if(args.length < 1) return bad("usage: anim on|off");
+          const mode = String(args[0]).toLowerCase();
+          if(mode === "on" || mode === "start") next = true;
+          else if(mode === "off" || mode === "stop") next = false;
+          else return bad("usage: anim on|off");
+        }
+        ctl.anim = next;
+        if(ctl.anim && psdModal.classList.contains("open")){
+          btnClosePsd.click();
+        }
+        log(`> animation mode ${ctl.anim ? "on" : "off"}`);
+        break;
+      }
 
       case "step": {
         const n = clampInt((args[0]??1)|0, 1, 100000);
@@ -1973,7 +2004,9 @@ canvas{
 
   btnSavePsd.onclick = () => saveCurrentPsd();
   btnNewPsd.onclick = () => newPsdEditor();
-  btnRunPsd.onclick = () => runPsdScript(psdEditor.value);
+  btnRunPsd.onclick = async () => {
+    await runPsdScript(psdEditor.value);
+  };
 
   psdModal.addEventListener("click", (event) => {
     if(event.target === psdModal){
